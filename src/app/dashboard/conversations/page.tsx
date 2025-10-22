@@ -12,7 +12,8 @@ import {
   Loader2,
   Send,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  TrendingUp
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

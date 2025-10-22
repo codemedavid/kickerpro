@@ -8,8 +8,6 @@ Date filtering wasn't working in the Conversations page. Users selected a date r
 
 The HTML date input returns dates in `YYYY-MM-DD` format (e.g., `2024-10-01`), but the database stores timestamps with full date-time (e.g., `2024-10-01T15:30:00.000Z`).
 
-
-
 The API was comparing:
 ```javascript
 // ❌ This didn't work:

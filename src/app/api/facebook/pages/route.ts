@@ -48,18 +48,15 @@ export async function GET() {
     }
 
     console.log('[Facebook Pages API] Fetching ALL pages from Facebook Graph API...');
-    console.log('[Facebook Pages API] Using access token:', accessToken.substring(0, 20) + '...');
 
     // Fetch ALL pages using pagination
-    // Try limit=250 (Facebook's max might be higher than documented 100)
     let allPages: FacebookPageData[] = [];
-    let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=250&access_token=${accessToken}`;
-    let batchCount = 0;
-    const maxBatches = 100; // Safety limit to prevent infinite loops (supports up to 25,000 pages)
+    let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=100&access_token=${accessToken}`;
+    let pageCount = 0;
 
-    while (nextUrl && batchCount < maxBatches) {
-      batchCount++;
-      console.log(`[Facebook Pages API] Fetching batch ${batchCount}... URL:`, nextUrl.substring(0, 100) + '...');
+    while (nextUrl) {
+      pageCount++;
+      console.log(`[Facebook Pages API] Fetching page ${pageCount}...`);
 
       const response = await fetch(nextUrl, {
         method: 'GET',
@@ -84,27 +81,18 @@ export async function GET() {
       // Add pages from this batch
       if (data.data && data.data.length > 0) {
         allPages = allPages.concat(data.data);
-        console.log(`[Facebook Pages API] ✅ Got ${data.data.length} pages in batch ${batchCount}. Total so far: ${allPages.length}`);
-      } else {
-        console.log(`[Facebook Pages API] ⚠️ Batch ${batchCount} returned 0 pages`);
+        console.log(`[Facebook Pages API] Got ${data.data.length} pages in batch ${pageCount}. Total so far: ${allPages.length}`);
       }
 
       // Check if there's a next page
       nextUrl = data.paging?.next || null;
       
       if (nextUrl) {
-        console.log('[Facebook Pages API] 📄 More pages available, fetching next batch...');
-        console.log('[Facebook Pages API] Next URL cursor:', nextUrl.split('after=')[1]?.substring(0, 20) || 'unknown');
-      } else {
-        console.log('[Facebook Pages API] ✓ No more pages to fetch');
+        console.log('[Facebook Pages API] More pages available, fetching next batch...');
       }
     }
 
-    console.log(`[Facebook Pages API] 🎉 Fetched ALL ${allPages.length} pages from Facebook in ${batchCount} batch(es)`);
-    
-    if (allPages.length === 0) {
-      console.error('[Facebook Pages API] ⚠️ WARNING: No pages fetched! You may not have admin access to any pages.');
-    }
+    console.log(`[Facebook Pages API] Fetched ALL ${allPages.length} pages from Facebook in ${pageCount} batch(es)`);
 
     return NextResponse.json({
       success: true,
