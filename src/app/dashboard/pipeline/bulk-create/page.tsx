@@ -4,33 +4,51 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
+  Loader2, 
+  Save, 
   ArrowLeft,
-  Save,
   DollarSign,
   Percent,
-  X,
-  Loader2
+  Calendar as CalendarIcon,
+  Users
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface PipelineStage {
   id: string;
   name: string;
+  description: string | null;
+  stage_order: number;
   color: string;
+  is_active: boolean;
 }
 
 interface Contact {
   sender_id: string;
   sender_name: string;
   page_id: string;
+}
+
+interface BulkOpportunity {
+  title: string;
+  description?: string;
+  contact_name: string;
+  contact_id: string;
+  page_id?: string;
+  stage_id: string;
+  value: number;
+  currency: string;
+  probability: number;
+  expected_close_date: string | null;
+  status: 'open' | 'won' | 'lost';
 }
 
 export default function BulkCreateOpportunitiesPage() {
@@ -40,127 +58,124 @@ export default function BulkCreateOpportunitiesPage() {
   const queryClient = useQueryClient();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [formData, setFormData] = useState({
+  const [bulkFormData, setBulkFormData] = useState({
     stageId: '',
-    titleTemplate: '{contact_name} - New Opportunity',
-    description: '',
+    titleTemplate: '{name} - New Opportunity',
     value: '',
     currency: 'USD',
-    probability: '50'
+    probability: '50',
+    expectedCloseDate: ''
   });
 
-  // Load contacts from sessionStorage
+  // Load contacts from sessionStorage on mount
   useEffect(() => {
     const stored = sessionStorage.getItem('opportunityContacts');
-    if (stored) {
-      try {
-        const data = JSON.parse(stored) as { contacts: Contact[] };
-        if (data.contacts && data.contacts.length > 0) {
-          setContacts(data.contacts);
-          toast({
-            title: "Contacts Loaded",
-            description: `Ready to create ${data.contacts.length} opportunities`
-          });
-          sessionStorage.removeItem('opportunityContacts');
-        } else {
-          router.push('/dashboard/conversations');
-        }
-      } catch (e) {
-        console.error('Error loading contacts:', e);
+    if (!stored) {
+      toast({
+        title: "No Contacts Found",
+        description: "Please select contacts from the conversations page.",
+        variant: "destructive"
+      });
+      router.push('/dashboard/conversations');
+      return;
+    }
+
+    try {
+      const data = JSON.parse(stored) as { contacts: Contact[]; pageId?: string };
+      if (!data.contacts || data.contacts.length === 0) {
+        toast({
+          title: "No Contacts Found",
+          description: "Please select contacts from the conversations page.",
+          variant: "destructive"
+        });
         router.push('/dashboard/conversations');
+        return;
       }
-    } else {
+
+      setContacts(data.contacts);
+      toast({
+        title: "Contacts Loaded",
+        description: `Creating opportunities for ${data.contacts.length} contact(s)`
+      });
+      sessionStorage.removeItem('opportunityContacts');
+    } catch (e) {
+      console.error('Error loading contacts:', e);
+      toast({
+        title: "Error",
+        description: "Failed to load contacts. Please try again.",
+        variant: "destructive"
+      });
       router.push('/dashboard/conversations');
     }
-  }, [router, toast]);
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch pipeline stages
-  const { data: stages = [] } = useQuery<PipelineStage[]>({
+  const { data: stages = [], isLoading: stagesLoading } = useQuery<PipelineStage[]>({
     queryKey: ['pipeline-stages', user?.id],
     queryFn: async () => {
       const response = await fetch('/api/pipeline/stages');
-      if (!response.ok) throw new Error('Failed to fetch stages');
+      if (!response.ok) throw new Error('Failed to fetch pipeline stages');
       const data = await response.json();
       return data.stages || [];
     },
     enabled: !!user?.id
   });
 
+  // Set default stage when stages first load
+  const [hasSetDefaultStage, setHasSetDefaultStage] = useState(false);
+  useEffect(() => {
+    if (stages.length > 0 && !bulkFormData.stageId && !hasSetDefaultStage) {
+      const firstStage = stages.sort((a, b) => a.stage_order - b.stage_order)[0];
+      if (firstStage) {
+        setBulkFormData(prev => ({ ...prev, stageId: firstStage.id }));
+        setHasSetDefaultStage(true);
+      }
+    }
+  }, [stages, bulkFormData.stageId, hasSetDefaultStage]);
+
   // Bulk create mutation
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const opportunities = contacts.map(contact => ({
-        page_id: contact.page_id,
-        contact_name: contact.sender_name,
-        contact_id: contact.sender_id,
-        stage_id: formData.stageId,
-        title: formData.titleTemplate.replace('{contact_name}', contact.sender_name),
-        description: formData.description || null,
-        value: parseFloat(formData.value) || 0,
-        currency: formData.currency,
-        probability: parseInt(formData.probability) || 0
-      }));
+    mutationFn: async (opportunities: BulkOpportunity[]) => {
+      const response = await fetch('/api/pipeline/opportunities/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opportunities }),
+      });
 
-      // Create opportunities one by one (with error handling)
-      const results = { success: 0, failed: 0, errors: [] as string[] };
-
-      for (const opp of opportunities) {
-        try {
-          const response = await fetch('/api/pipeline/opportunities', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(opp)
-          });
-
-          if (response.ok) {
-            results.success++;
-          } else {
-            results.failed++;
-            const error = await response.json();
-            results.errors.push(`${opp.contact_name}: ${error.error || 'Failed'}`);
-          }
-        } catch (error) {
-          results.failed++;
-          results.errors.push(`${opp.contact_name}: Network error`);
-        }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create opportunities');
       }
 
-      return results;
+      return response.json();
     },
-    onSuccess: (results) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['opportunities'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-
-      if (results.failed === 0) {
-        toast({
-          title: "✅ Opportunities Created!",
-          description: `Successfully created ${results.success} opportunities.`,
-          duration: 3000
-        });
-      } else {
-        toast({
-          title: "Partial Success",
-          description: `Created ${results.success} opportunities. ${results.failed} failed.`,
-          variant: "destructive",
-          duration: 5000
-        });
-      }
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      
+      toast({
+        title: "Success!",
+        description: `Created ${data.created} opportunit${data.created === 1 ? 'y' : 'ies'} successfully!`,
+        duration: 5000
+      });
 
       router.push('/dashboard/pipeline');
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to create opportunities. Please try again.",
+        description: error.message || "Failed to create opportunities. Please try again.",
         variant: "destructive"
       });
     }
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.stageId) {
+    if (!bulkFormData.stageId) {
       toast({
         title: "Validation Error",
         description: "Please select a pipeline stage.",
@@ -169,180 +184,147 @@ export default function BulkCreateOpportunitiesPage() {
       return;
     }
 
-    createMutation.mutate();
-  };
-
-  const removeContact = (senderId: string) => {
-    setContacts(contacts.filter(c => c.sender_id !== senderId));
-    if (contacts.length <= 1) {
-      router.push('/dashboard/conversations');
+    if (!bulkFormData.value || parseFloat(bulkFormData.value) <= 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid opportunity value.",
+        variant: "destructive"
+      });
+      return;
     }
-  };
 
-  const previewTitle = (contactName: string) => {
-    return formData.titleTemplate.replace('{contact_name}', contactName);
+    // Create opportunities from contacts
+    const opportunities = contacts.map(contact => ({
+      title: bulkFormData.titleTemplate.replace('{name}', contact.sender_name),
+      description: `Opportunity created from conversation with ${contact.sender_name}`,
+      contact_name: contact.sender_name,
+      contact_id: contact.sender_id,
+      page_id: '', // Will be set on backend from contact page_id
+      stage_id: bulkFormData.stageId,
+      value: parseFloat(bulkFormData.value),
+      currency: bulkFormData.currency,
+      probability: parseInt(bulkFormData.probability),
+      expected_close_date: bulkFormData.expectedCloseDate || null,
+      status: 'open' as const
+    }));
+
+    createMutation.mutate(opportunities);
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* Header */}
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Button 
-          variant="outline" 
-          size="icon" 
-          onClick={() => router.back()}
-        >
+        <Button variant="outline" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Create Opportunities ({contacts.length})</h1>
+          <h1 className="text-3xl font-bold text-foreground">Bulk Create Opportunities</h1>
           <p className="text-muted-foreground mt-1">
-            Bulk create opportunities from selected conversations
+            Creating {contacts.length} opportunit{contacts.length === 1 ? 'y' : 'ies'} from selected contacts
           </p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Selected Contacts */}
-        <Card className="border-purple-200 bg-purple-50">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-purple-900">
-                  Selected Contacts ({contacts.length})
-                </CardTitle>
-                <CardDescription className="text-purple-700">
-                  Opportunities will be created for these contacts
-                </CardDescription>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => router.push('/dashboard/conversations')}
-                className="border-purple-300"
-              >
-                Change Selection
-              </Button>
+      <Card className="border-purple-200 bg-purple-50">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-purple-600 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold">
+              <Users className="w-6 h-6" />
             </div>
+            <div>
+              <p className="font-semibold text-purple-900">
+                {contacts.length} contact{contacts.length !== 1 ? 's' : ''} selected
+              </p>
+              <p className="text-sm text-purple-700">
+                All opportunities will be created with the same settings below
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Stage Selection */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Pipeline Stage</CardTitle>
+            <CardDescription>Select the initial stage for all opportunities</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {contacts.slice(0, 50).map((contact) => (
-                <Badge key={contact.sender_id} variant="secondary" className="px-3 py-2">
-                  {contact.sender_name}
-                  <button
-                    type="button"
-                    onClick={() => removeContact(contact.sender_id)}
-                    className="ml-2 hover:text-destructive"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
-              {contacts.length > 50 && (
-                <Badge variant="outline" className="px-3 py-2 border-2 border-dashed">
-                  + {contacts.length - 50} more contacts
-                </Badge>
-              )}
-            </div>
+            <Label htmlFor="stage">Stage *</Label>
+            {stagesLoading ? (
+              <Skeleton className="h-10 mt-2" />
+            ) : (
+              <Select
+                value={bulkFormData.stageId}
+                onValueChange={(value) => setBulkFormData({ ...bulkFormData, stageId: value })}
+              >
+                <SelectTrigger id="stage" className="mt-2">
+                  <SelectValue placeholder="Select a stage..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {stages
+                    .sort((a, b) => a.stage_order - b.stage_order)
+                    .map((stage) => (
+                      <SelectItem key={stage.id} value={stage.id}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: stage.color }}
+                          />
+                          {stage.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
           </CardContent>
         </Card>
 
-        {/* Opportunity Template */}
+        {/* Opportunity Details */}
         <Card>
           <CardHeader>
-            <CardTitle>Opportunity Template</CardTitle>
-            <CardDescription>
-              Settings will be applied to all {contacts.length} opportunities
-            </CardDescription>
+            <CardTitle>Opportunity Details</CardTitle>
+            <CardDescription>Settings that will apply to all opportunities</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Pipeline Stage */}
             <div>
-              <Label htmlFor="stage">Pipeline Stage *</Label>
-              <Select 
-                value={formData.stageId} 
-                onValueChange={(value) => setFormData({ ...formData, stageId: value })}
-              >
-                <SelectTrigger id="stage" className="mt-2">
-                  <SelectValue placeholder="Select initial stage for all..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {stages.map((stage) => (
-                    <SelectItem key={stage.id} value={stage.id}>
-                      <div className="flex items-center gap-2">
-                        <div 
-                          className="w-3 h-3 rounded-full" 
-                          style={{ backgroundColor: stage.color }}
-                        />
-                        {stage.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Title Template */}
-            <div>
-              <Label htmlFor="titleTemplate">Title Template</Label>
+              <Label htmlFor="title-template">Title Template</Label>
               <Input
-                id="titleTemplate"
-                value={formData.titleTemplate}
-                onChange={(e) => setFormData({ ...formData, titleTemplate: e.target.value })}
-                placeholder="{contact_name} - New Opportunity"
+                id="title-template"
+                value={bulkFormData.titleTemplate}
+                onChange={(e) => setBulkFormData({ ...bulkFormData, titleTemplate: e.target.value })}
+                placeholder="Use {name} for contact name..."
                 className="mt-2"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Use <code className="bg-gray-100 px-1 rounded">{'{contact_name}'}</code> to personalize each opportunity
+                Use {'{name}'} to include the contact&apos;s name
               </p>
-              {contacts.length > 0 && (
-                <p className="text-xs text-purple-600 mt-1">
-                  Example: "{previewTitle(contacts[0].sender_name)}"
-                </p>
-              )}
             </div>
 
-            {/* Description */}
-            <div>
-              <Label htmlFor="description">Description (Optional)</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Add notes or description for all opportunities..."
-                className="mt-2 min-h-20"
-              />
-            </div>
-
-            {/* Value & Currency */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <Label htmlFor="value">Default Deal Value (Optional)</Label>
-                <div className="relative mt-2">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="value"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.value}
-                    onChange={(e) => setFormData({ ...formData, value: e.target.value })}
-                    placeholder="1000.00"
-                    className="pl-10"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Leave blank for $0 (can update individually later)
-                </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="value" className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" /> Value *
+                </Label>
+                <Input
+                  id="value"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={bulkFormData.value}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, value: e.target.value })}
+                  placeholder="0.00"
+                  className="mt-2"
+                />
               </div>
 
               <div>
                 <Label htmlFor="currency">Currency</Label>
-                <Select 
-                  value={formData.currency} 
-                  onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                <Select
+                  value={bulkFormData.currency}
+                  onValueChange={(value) => setBulkFormData({ ...bulkFormData, currency: value })}
                 >
                   <SelectTrigger id="currency" className="mt-2">
                     <SelectValue />
@@ -357,140 +339,76 @@ export default function BulkCreateOpportunitiesPage() {
               </div>
             </div>
 
-            {/* Probability */}
-            <div>
-              <Label htmlFor="probability">Win Probability (%)</Label>
-              <div className="relative mt-2">
-                <Percent className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="probability" className="flex items-center gap-2">
+                  <Percent className="w-4 h-4" /> Win Probability
+                </Label>
                 <Input
                   id="probability"
                   type="number"
                   min="0"
                   max="100"
-                  value={formData.probability}
-                  onChange={(e) => setFormData({ ...formData, probability: e.target.value })}
-                  className="pr-10"
+                  value={bulkFormData.probability}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, probability: e.target.value })}
+                  className="mt-2"
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Default probability for all opportunities (0-100%)
-              </p>
+
+              <div>
+                <Label htmlFor="expected-close" className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4" /> Expected Close Date
+                </Label>
+                <Input
+                  id="expected-close"
+                  type="date"
+                  value={bulkFormData.expectedCloseDate}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, expectedCloseDate: e.target.value })}
+                  className="mt-2"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Summary */}
-        {formData.stageId && (
-          <Card className="border-blue-200 bg-blue-50">
-            <CardHeader>
-              <CardTitle className="text-blue-900">Creation Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Opportunities to create:</span>
-                  <span className="font-semibold">{contacts.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Stage:</span>
-                  <span className="font-semibold">
-                    {stages.find(s => s.id === formData.stageId)?.name || 'Not selected'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Value per opportunity:</span>
-                  <span className="font-semibold">
-                    ${parseFloat(formData.value || '0').toLocaleString()} {formData.currency}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Probability:</span>
-                  <span className="font-semibold">{formData.probability}%</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="text-muted-foreground">Total Pipeline Value:</span>
-                  <span className="font-semibold text-green-600">
-                    ${(parseFloat(formData.value || '0') * contacts.length).toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Weighted Value:</span>
-                  <span className="font-semibold text-purple-600">
-                    ${Math.round((parseFloat(formData.value || '0') * contacts.length * parseInt(formData.probability)) / 100).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Preview Examples */}
-        {contacts.length > 0 && formData.stageId && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Preview (First 3 Opportunities)</CardTitle>
-              <CardDescription>
-                How the opportunities will be created
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {contacts.slice(0, 3).map((contact) => (
-                  <div key={contact.sender_id} className="p-3 border rounded-lg bg-card">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-semibold">{previewTitle(contact.sender_name)}</p>
-                        <p className="text-sm text-muted-foreground">{contact.sender_name}</p>
-                        <div className="flex gap-2 mt-2">
-                          <Badge variant="outline" style={{ borderColor: stages.find(s => s.id === formData.stageId)?.color }}>
-                            {stages.find(s => s.id === formData.stageId)?.name}
-                          </Badge>
-                          {formData.value && (
-                            <Badge className="bg-green-100 text-green-700">
-                              ${parseFloat(formData.value).toLocaleString()}
-                            </Badge>
-                          )}
-                          <Badge variant="secondary">
-                            {formData.probability}% probability
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+        {/* Selected Contacts Preview */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Selected Contacts ({contacts.length})</CardTitle>
+            <CardDescription>Opportunities will be created for these contacts</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-64 overflow-y-auto">
+              <div className="flex flex-wrap gap-2">
+                {contacts.map((contact, index) => (
+                  <Badge key={index} variant="secondary" className="px-3 py-2">
+                    {contact.sender_name}
+                  </Badge>
                 ))}
-                {contacts.length > 3 && (
-                  <p className="text-sm text-muted-foreground text-center">
-                    + {contacts.length - 3} more opportunities will be created
-                  </p>
-                )}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Action Buttons */}
+        {/* Actions */}
         <div className="flex justify-end gap-4">
-          <Button 
-            type="button" 
-            variant="outline" 
-            onClick={() => router.push('/dashboard/conversations')}
-          >
+          <Button type="button" variant="outline" onClick={() => router.back()}>
             Cancel
           </Button>
           <Button
             type="submit"
-            className="bg-[#1877f2] hover:bg-[#166fe5]"
+            className="bg-purple-600 hover:bg-purple-700 text-white"
             disabled={createMutation.isPending}
           >
             {createMutation.isPending ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Creating {contacts.length} Opportunities...
+                Creating...
               </>
             ) : (
               <>
                 <Save className="w-4 h-4 mr-2" />
-                Create {contacts.length} Opportunities
+                Create {contacts.length} Opportunit{contacts.length === 1 ? 'y' : 'ies'}
               </>
             )}
           </Button>
@@ -499,4 +417,3 @@ export default function BulkCreateOpportunitiesPage() {
     </div>
   );
 }
-

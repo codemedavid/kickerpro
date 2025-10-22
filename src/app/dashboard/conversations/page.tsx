@@ -810,8 +810,29 @@ export default function ConversationsPage() {
                         </div>
                       </div>
 
-                      <div className="text-right">
-                        <p className="text-xs font-medium">
+                      <div className="flex flex-col gap-2 ml-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Find the internal page UUID from the facebook_page_id
+                            const pageUuid = pages.find(p => p.facebook_page_id === conv.page_id)?.id;
+                            
+                            sessionStorage.setItem('opportunityContact', JSON.stringify({
+                              sender_id: conv.sender_id,
+                              sender_name: conv.sender_name,
+                              page_id: conv.page_id,
+                              pageUuid: pageUuid
+                            }));
+                            router.push('/dashboard/pipeline/new');
+                          }}
+                          className="whitespace-nowrap"
+                        >
+                          <TrendingUp className="w-4 h-4 mr-1" />
+                          Add to Pipeline
+                        </Button>
+                        <p className="text-xs text-muted-foreground text-center">
                           ID: {conv.sender_id.substring(0, 12)}...
                         </p>
                       </div>

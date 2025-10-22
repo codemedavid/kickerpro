@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
@@ -58,6 +58,47 @@ export default function NewOpportunityPage() {
     probability: '50',
     expectedCloseDate: ''
   });
+
+  // Load from sessionStorage if coming from conversation
+  useEffect(() => {
+    const stored = sessionStorage.getItem('opportunityContact');
+    if (!stored) return;
+
+    try {
+      const data = JSON.parse(stored) as {
+        sender_id: string;
+        sender_name: string;
+        page_id: string;
+        pageUuid?: string;
+      };
+      
+      // Set initial form data from stored contact
+      setFormData({
+        conversationId: '',
+        pageId: data.pageUuid || '',
+        contactName: data.sender_name,
+        contactId: data.sender_id,
+        stageId: '',
+        title: `${data.sender_name} - New Opportunity`,
+        description: '',
+        value: '',
+        currency: 'USD',
+        probability: '50',
+        expectedCloseDate: ''
+      });
+      
+      toast({
+        title: "Contact Loaded",
+        description: `Creating opportunity for ${data.sender_name}`
+      });
+      
+      sessionStorage.removeItem('opportunityContact');
+    } catch (e) {
+      console.error('Error loading contact:', e);
+    }
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch pipeline stages
   const { data: stages = [], isLoading: stagesLoading } = useQuery<PipelineStage[]>({
@@ -163,6 +204,17 @@ export default function NewOpportunityPage() {
 
   // Auto-fill contact details when conversation is selected
   const handleConversationSelect = (conversationId: string) => {
+    if (conversationId === 'manual') {
+      // Clear contact fields for manual entry
+      setFormData(prev => ({
+        ...prev,
+        conversationId: '',
+        contactName: '',
+        contactId: ''
+      }));
+      return;
+    }
+
     const conversation = conversations.find(c => c.id === conversationId);
     if (conversation) {
       setFormData(prev => ({
@@ -241,7 +293,7 @@ export default function NewOpportunityPage() {
                     <SelectValue placeholder="Select existing conversation or enter manually..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Enter manually</SelectItem>
+                    <SelectItem value="manual">Enter manually</SelectItem>
                     {conversations.slice(0, 50).map((conv) => (
                       <SelectItem key={conv.id} value={conv.id}>
                         {conv.sender_name || `User ${conv.sender_id.substring(0, 10)}`}
