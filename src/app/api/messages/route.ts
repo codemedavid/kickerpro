@@ -44,7 +44,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(messages || []);
+    return NextResponse.json({
+      success: true,
+      messages: messages || [],
+      count: messages?.length || 0
+    });
   } catch (error) {
     console.error('[Messages API] Error:', error);
     return NextResponse.json(
