@@ -50,11 +50,12 @@ export async function GET() {
     console.log('[Facebook Pages API] Fetching ALL pages from Facebook Graph API...');
     console.log('[Facebook Pages API] Using access token:', accessToken.substring(0, 20) + '...');
 
-    // Fetch ALL pages using pagination (Facebook returns max 100 per request)
+    // Fetch ALL pages using pagination
+    // Try limit=250 (Facebook's max might be higher than documented 100)
     let allPages: FacebookPageData[] = [];
-    let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=100&access_token=${accessToken}`;
+    let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=250&access_token=${accessToken}`;
     let batchCount = 0;
-    const maxBatches = 100; // Safety limit to prevent infinite loops
+    const maxBatches = 100; // Safety limit to prevent infinite loops (supports up to 25,000 pages)
 
     while (nextUrl && batchCount < maxBatches) {
       batchCount++;
