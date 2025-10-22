@@ -86,7 +86,7 @@ export default function LoginPage() {
         console.log('[Login] Got auth response for user:', userID);
         
         // Get user info from Facebook
-        window.FB.api('/me', { fields: 'name,email,picture' }, async (user: FacebookUser) => {
+        window.FB.api('/me', { fields: 'name,picture' }, async (user: FacebookUser) => {
           console.log('[Login] Got user info from Facebook:', user);
           
           try {
@@ -99,7 +99,7 @@ export default function LoginPage() {
                 accessToken,
                 userID,
                 name: user.name,
-                email: user.email || '',
+                email: '', // Email permission removed - not required
                 picture: user.picture?.data?.url || ''
               })
             });
@@ -150,7 +150,7 @@ export default function LoginPage() {
         alert('Facebook login was cancelled. Please try again.');
       }
     }, { 
-      scope: 'pages_manage_posts,pages_read_engagement,pages_messaging,pages_show_list,email'
+      scope: 'pages_messaging,pages_read_engagement,pages_show_list,pages_manage_metadata'
     });
   };
 

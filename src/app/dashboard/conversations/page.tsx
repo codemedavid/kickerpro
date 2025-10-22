@@ -323,6 +323,41 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
+  const handleCreateOpportunities = () => {
+    if (selectedContacts.size === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select at least one contact to create opportunities.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Store selected contacts in sessionStorage
+    const selectedArray = Array.from(selectedContacts);
+    const contactsData = selectedArray.map(sender_id => {
+      const conv = conversations.find(c => c.sender_id === sender_id);
+      return {
+        sender_id,
+        sender_name: conv?.sender_name || `User ${sender_id.substring(0, 8)}`,
+        page_id: conv?.page_id || ''
+      };
+    });
+
+    sessionStorage.setItem('opportunityContacts', JSON.stringify({
+      contacts: contactsData,
+      pageId: selectedPageId !== 'all' ? selectedPageId : null
+    }));
+
+    toast({
+      title: "Contacts Loaded",
+      description: `Ready to create ${selectedContacts.size} opportunit${selectedContacts.size === 1 ? 'y' : 'ies'}`,
+      duration: 2000
+    });
+
+    router.push('/dashboard/pipeline/bulk-create');
+  };
+
   const handleSendToSelected = async () => {
     if (selectedContacts.size === 0) {
       toast({
@@ -430,13 +465,22 @@ export default function ConversationsPage() {
         </div>
         <div className="flex gap-3">
           {selectedContacts.size > 0 && (
-            <Button 
-              onClick={handleSendToSelected}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Send className="mr-2 w-4 h-4" />
-              Send to {selectedContacts.size} Selected
-            </Button>
+            <>
+              <Button 
+                onClick={handleSendToSelected}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Send className="mr-2 w-4 h-4" />
+                Send to {selectedContacts.size} Selected
+              </Button>
+              <Button 
+                onClick={handleCreateOpportunities}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <TrendingUp className="mr-2 w-4 h-4" />
+                Create {selectedContacts.size} Opportunit{selectedContacts.size === 1 ? 'y' : 'ies'}
+              </Button>
+            </>
           )}
           <Button 
             onClick={handleSync}
