@@ -12,7 +12,9 @@ import {
   Settings,
   LogOut,
   Menu,
-  X
+  X,
+  TrendingUp,
+  FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,12 +24,13 @@ import { useState } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Conversations', href: '/dashboard/conversations', icon: MessageSquare },
+  { name: 'Conversations', href: '/dashboard/conversations', icon: Users },
   { name: 'Compose Message', href: '/dashboard/compose', icon: MessageSquare },
+  { name: 'Pipeline & Opportunities', href: '/dashboard/pipeline', icon: TrendingUp },
   { name: 'Scheduled', href: '/dashboard/scheduled', icon: Calendar },
+  { name: 'Drafts', href: '/dashboard/drafts', icon: FileText },
   { name: 'Message History', href: '/dashboard/history', icon: History },
   { name: 'Facebook Pages', href: '/dashboard/pages', icon: Facebook },
-  { name: 'Team', href: '/dashboard/team', icon: Users },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
