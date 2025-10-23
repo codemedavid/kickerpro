@@ -68,15 +68,17 @@ export async function POST(request: NextRequest) {
 
     for (const page of pages) {
       try {
-        // Check if page already exists
+        // Check if THIS USER already has this page (not globally)
         const { data: existing } = await supabase
           .from('facebook_pages')
           .select('*')
           .eq('facebook_page_id', page.id)
-          .single();
+          .eq('user_id', userId) // ✅ Check per-user, allowing multi-tenancy
+          .maybeSingle(); // Use maybeSingle() instead of single() to avoid error if not found
 
         if (existing) {
-          // Update existing page
+          // Update existing page for this user
+          console.log('[Pages API] Page exists for this user, updating:', page.name);
           const { data: updated, error: updateError } = await supabase
             .from('facebook_pages')
             .update({
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
               is_active: true,
               updated_at: new Date().toISOString()
             })
-            .eq('facebook_page_id', page.id)
+            .eq('id', existing.id) // Update by internal ID, not facebook_page_id
             .select()
             .single();
 
@@ -96,11 +98,12 @@ export async function POST(request: NextRequest) {
             console.error('[Pages API] Update error for page', page.id, updateError);
             results.push({ id: page.id, success: false, error: updateError.message });
           } else {
-            console.log('[Pages API] Updated page:', page.name);
+            console.log('[Pages API] Updated page for user:', page.name);
             results.push({ id: page.id, success: true, data: updated });
           }
         } else {
-          // Insert new page
+          // Insert new page for this user (even if another user already has it)
+          console.log('[Pages API] Page does not exist for this user, inserting:', page.name);
           const { data: inserted, error: insertError } = await supabase
             .from('facebook_pages')
             .insert({
@@ -118,9 +121,10 @@ export async function POST(request: NextRequest) {
 
           if (insertError) {
             console.error('[Pages API] Insert error for page', page.id, insertError);
+            console.error('[Pages API] Error details:', insertError);
             results.push({ id: page.id, success: false, error: insertError.message });
           } else {
-            console.log('[Pages API] Inserted new page:', page.name);
+            console.log('[Pages API] Inserted new page for user:', page.name);
             results.push({ id: page.id, success: true, data: inserted });
           }
         }

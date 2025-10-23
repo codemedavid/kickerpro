@@ -141,6 +141,28 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_stages_user_id ON pipeline_stages(user_i
 CREATE INDEX IF NOT EXISTS idx_opportunity_activities_opportunity_id ON opportunity_activities(opportunity_id);
 
 -- ================================================================
+-- 🔧 MULTI-TENANT FIX: Allow Multiple Users to Manage Same Page
+-- ================================================================
+
+-- Drop the UNIQUE constraint on facebook_page_id
+ALTER TABLE facebook_pages 
+DROP CONSTRAINT IF EXISTS facebook_pages_facebook_page_id_key;
+
+-- Add composite unique constraint (user_id + facebook_page_id)
+-- This prevents the SAME USER from adding the SAME PAGE twice
+-- But allows DIFFERENT USERS to add the SAME PAGE
+ALTER TABLE facebook_pages
+DROP CONSTRAINT IF EXISTS facebook_pages_user_page_unique;
+
+ALTER TABLE facebook_pages
+ADD CONSTRAINT facebook_pages_user_page_unique 
+UNIQUE (user_id, facebook_page_id);
+
+-- Create index for better query performance
+CREATE INDEX IF NOT EXISTS idx_facebook_pages_user_page 
+ON facebook_pages(user_id, facebook_page_id);
+
+-- ================================================================
 -- 🎉 SUCCESS MESSAGE
 -- ================================================================
 
@@ -152,5 +174,6 @@ SELECT
   '• Process in batches (100 per batch)' as feature_3,
   '• Track batch progress' as feature_4,
   '• Manage sales pipeline' as feature_5,
-  '• Track opportunities and deals' as feature_6;
+  '• Track opportunities and deals' as feature_6,
+  '• Multiple users can manage the same page!' as feature_7;
 

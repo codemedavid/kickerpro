@@ -1,24 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 
-// GET single message
+// GET /api/messages/[id] - Get single message details
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: messageId } = await params;
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    const messageId = params.id;
     const supabase = await createClient();
 
     const { data: message, error } = await supabase
@@ -29,18 +26,16 @@ export async function GET(
       .single();
 
     if (error) {
+      console.error('[Message API] Error:', error);
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Message not found' },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      message
-    });
+    return NextResponse.json(message);
   } catch (error) {
-    console.error('[Message GET] Error:', error);
+    console.error('[Message API] Error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch message' },
       { status: 500 }
@@ -48,90 +43,22 @@ export async function GET(
   }
 }
 
-// PATCH - Update message
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id: messageId } = await params;
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const supabase = await createClient();
-
-    // Verify ownership
-    const { data: existing } = await supabase
-      .from('messages')
-      .select('id')
-      .eq('id', messageId)
-      .eq('created_by', userId)
-      .single();
-
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Message not found or unauthorized' },
-        { status: 404 }
-      );
-    }
-
-    // Update message
-    const { data: message, error } = await supabase
-      .from('messages')
-      .update(body)
-      .eq('id', messageId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[Message PATCH] Error:', error);
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      message
-    });
-  } catch (error) {
-    console.error('[Message PATCH] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update message' },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE - Delete message
+// DELETE /api/messages/[id] - Delete a message
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: messageId } = await params;
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    const messageId = params.id;
     const supabase = await createClient();
 
-    // Verify ownership and delete
     const { error } = await supabase
       .from('messages')
       .delete()
@@ -139,32 +66,19 @@ export async function DELETE(
       .eq('created_by', userId);
 
     if (error) {
-      console.error('[Message DELETE] Error:', error);
+      console.error('[Message Delete API] Error:', error);
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to delete message' },
         { status: 500 }
       );
     }
 
-    // Log activity
-    await supabase
-      .from('message_activity')
-      .insert({
-        message_id: messageId,
-        activity_type: 'deleted',
-        description: 'Scheduled message deleted'
-      });
-
-    return NextResponse.json({
-      success: true,
-      message: 'Message deleted successfully'
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[Message DELETE] Error:', error);
+    console.error('[Message Delete API] Error:', error);
     return NextResponse.json(
       { error: 'Failed to delete message' },
       { status: 500 }
     );
   }
 }
-

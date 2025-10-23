@@ -222,14 +222,32 @@ export async function POST(
 
     console.log('[Send API] All batches completed. Total sent:', sentCount, 'Total failed:', failedCount);
 
+    // Check final message status (might be cancelled)
+    const { data: finalMessage } = await supabase
+      .from('messages')
+      .select('status')
+      .eq('id', messageId)
+      .single();
+
+    const wasCancelled = finalMessage?.status === 'cancelled';
+    const finalStatus = wasCancelled 
+      ? 'cancelled' 
+      : failedCount === recipients.length 
+      ? 'failed' 
+      : 'sent';
+
     // Update message with results
     await supabase
       .from('messages')
       .update({
-        status: failedCount === 0 ? 'sent' : sentCount > 0 ? 'sent' : 'failed',
+        status: finalStatus,
         sent_at: new Date().toISOString(),
         delivered_count: sentCount,
-        error_message: failedCount > 0 ? `${failedCount} messages failed to send` : null
+        error_message: wasCancelled 
+          ? `Cancelled by user. ${sentCount} sent, ${recipients.length - sentCount - failedCount} not sent` 
+          : failedCount > 0 
+          ? `${failedCount} messages failed to send` 
+          : null
       })
       .eq('id', messageId);
 
@@ -238,8 +256,10 @@ export async function POST(
       .from('message_activity')
       .insert({
         message_id: messageId,
-        activity_type: 'sent',
-        description: `Message "${message.title}" sent to ${sentCount} recipients (${failedCount} failed)`
+        activity_type: wasCancelled ? 'cancelled' : 'sent',
+        description: wasCancelled 
+          ? `Message "${message.title}" cancelled. ${sentCount} sent before cancellation`
+          : `Message "${message.title}" sent to ${sentCount} recipients (${failedCount} failed)`
       });
 
     return NextResponse.json({
@@ -247,6 +267,7 @@ export async function POST(
       sent: sentCount,
       failed: failedCount,
       total: recipients.length,
+      cancelled: wasCancelled,
       batches: {
         total: totalBatches,
         size: BATCH_SIZE,

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Send, ArrowLeft, Calendar, Users, Eye, X } from 'lucide-react';
+import { Send, ArrowLeft, Calendar, Users, Eye, X, Loader2, AlertCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -45,6 +47,22 @@ export default function ComposePage() {
   });
 
   const [selectedContacts, setSelectedContacts] = useState<SelectedContact[]>([]);
+  const [sendingProgress, setSendingProgress] = useState<{
+    isOpen: boolean;
+    messageId: string | null;
+    sent: number;
+    failed: number;
+    total: number;
+    status: 'sending' | 'completed' | 'cancelled' | 'error';
+  }>({
+    isOpen: false,
+    messageId: null,
+    sent: 0,
+    failed: 0,
+    total: 0,
+    status: 'sending'
+  });
+  const pollInterval = useRef<NodeJS.Timeout | null>(null);
 
   // Load selected contacts from sessionStorage on mount
   useEffect(() => {
@@ -165,31 +183,20 @@ export default function ComposePage() {
       const result = await response.json();
       console.log('[Compose] Message created:', result.message.id);
 
-      // Step 2: If immediate send, trigger the send API
+      // Step 2: If immediate send, trigger the send API in background and show progress
       if (data.status === 'sent') {
-        console.log('[Compose] Triggering immediate send...');
+        console.log('[Compose] Triggering immediate send in background...');
         
-        toast({
-          title: "Sending Messages...",
-          description: "Please wait while we send your message to recipients.",
-          duration: 3000
-        });
-        
-        const sendResponse = await fetch(`/api/messages/${result.message.id}/send`, {
+        // Start sending in background (non-blocking)
+        fetch(`/api/messages/${result.message.id}/send`, {
           method: 'POST'
+        }).catch(error => {
+          console.error('[Compose] Background send error:', error);
         });
-
-        if (!sendResponse.ok) {
-          const sendError = await sendResponse.json();
-          throw new Error(sendError.error || 'Failed to send message');
-        }
-
-        const sendResult = await sendResponse.json();
-        console.log('[Compose] Send result:', sendResult);
         
         return {
           ...result,
-          sendStats: sendResult
+          isImmediateSend: true
         };
       }
 
@@ -200,33 +207,40 @@ export default function ComposePage() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['activities'] });
 
-      const isImmediate = formData.messageType === 'immediate';
-      
-      if (isImmediate && data.sendStats) {
-        const batchInfo = data.sendStats.batches 
-          ? ` Processed in ${data.sendStats.batches.total} batch${data.sendStats.batches.total > 1 ? 'es' : ''}.`
-          : '';
+      // If immediate send, open progress modal and start polling
+      if (data.isImmediateSend) {
+        console.log('[Compose] Starting progress tracking for message:', data.message.id);
         
-        toast({
-          title: "✅ Message Sent!",
-          description: `Successfully sent to ${data.sendStats.sent} recipients.${data.sendStats.failed > 0 ? ` ${data.sendStats.failed} failed.` : ''}${batchInfo}`,
-          duration: 5000
+        setSendingProgress({
+          isOpen: true,
+          messageId: data.message.id,
+          sent: 0,
+          failed: 0,
+          total: data.message.recipient_count,
+          status: 'sending'
         });
+        
+        // Start polling for progress
+        startPolling(data.message.id);
+        
+        // Clear selected contacts
+        setSelectedContacts([]);
       } else {
+        // For scheduled/draft, show success and redirect
         toast({
           title: "Success!",
           description: formData.messageType === 'scheduled'
             ? "Message scheduled successfully!"
             : "Draft saved successfully!"
         });
-      }
 
-      // Clear selected contacts
-      setSelectedContacts([]);
-      
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1000);
+        // Clear selected contacts
+        setSelectedContacts([]);
+        
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 1000);
+      }
     },
     onError: (error: Error) => {
       console.error('[Compose] Mutation error:', error);
@@ -237,6 +251,106 @@ export default function ComposePage() {
       });
     }
   });
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollInterval.current) {
+        clearInterval(pollInterval.current);
+      }
+    };
+  }, []);
+
+  // Polling function to check message sending progress
+  const startPolling = (messageId: string) => {
+    if (pollInterval.current) {
+      clearInterval(pollInterval.current);
+    }
+
+    // Poll every 2 seconds
+    pollInterval.current = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/messages/${messageId}`);
+        if (!response.ok) throw new Error('Failed to fetch message status');
+        
+        const message = await response.json();
+        
+        // Update progress
+        setSendingProgress(prev => ({
+          ...prev,
+          sent: message.delivered_count || 0,
+          failed: (message.recipient_count || 0) - (message.delivered_count || 0),
+          status: message.status === 'sending' ? 'sending' : 
+                  message.status === 'cancelled' ? 'cancelled' :
+                  message.status === 'failed' ? 'error' : 'completed'
+        }));
+
+        // Stop polling if completed, cancelled, or failed
+        if (message.status !== 'sending') {
+          if (pollInterval.current) {
+            clearInterval(pollInterval.current);
+            pollInterval.current = null;
+          }
+        }
+      } catch (error) {
+        console.error('[Polling] Error:', error);
+      }
+    }, 2000);
+  };
+
+  // Cancel mutation
+  const cancelMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await fetch(`/api/messages/${messageId}/cancel`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to cancel message');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Cancelling...",
+        description: "Message send is being cancelled. This may take a moment.",
+        duration: 3000
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cancel Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleCancelSend = () => {
+    if (sendingProgress.messageId) {
+      cancelMutation.mutate(sendingProgress.messageId);
+    }
+  };
+
+  const handleCloseProgress = () => {
+    if (pollInterval.current) {
+      clearInterval(pollInterval.current);
+      pollInterval.current = null;
+    }
+
+    setSendingProgress({
+      isOpen: false,
+      messageId: null,
+      sent: 0,
+      failed: 0,
+      total: 0,
+      status: 'sending'
+    });
+
+    router.push('/dashboard');
+  };
 
   const selectedPage = pages.find(p => p.id === formData.pageId);
 
@@ -701,6 +815,125 @@ export default function ComposePage() {
           </Button>
         </div>
       </form>
+
+      {/* Sending Progress Dialog */}
+      <Dialog open={sendingProgress.isOpen} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[500px]" onInteractOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {sendingProgress.status === 'sending' && (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                  Sending Messages...
+                </>
+              )}
+              {sendingProgress.status === 'completed' && (
+                <>
+                  <Send className="w-5 h-5 text-green-600" />
+                  Messages Sent!
+                </>
+              )}
+              {sendingProgress.status === 'cancelled' && (
+                <>
+                  <XCircle className="w-5 h-5 text-orange-600" />
+                  Send Cancelled
+                </>
+              )}
+              {sendingProgress.status === 'error' && (
+                <>
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                  Send Failed
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {sendingProgress.status === 'sending' && 
+                "Please wait while we send your message. This may take a few moments."}
+              {sendingProgress.status === 'completed' && 
+                "Your message has been sent to all recipients."}
+              {sendingProgress.status === 'cancelled' && 
+                "Message sending was cancelled. Some messages may have been sent."}
+              {sendingProgress.status === 'error' && 
+                "There was an error sending your message."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Progress</span>
+                <span>
+                  {sendingProgress.sent + sendingProgress.failed} / {sendingProgress.total}
+                </span>
+              </div>
+              <Progress 
+                value={((sendingProgress.sent + sendingProgress.failed) / sendingProgress.total) * 100} 
+                className="h-2"
+              />
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-4 py-2">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">
+                  {sendingProgress.sent}
+                </div>
+                <div className="text-xs text-muted-foreground">Sent</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">
+                  {sendingProgress.failed}
+                </div>
+                <div className="text-xs text-muted-foreground">Failed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {sendingProgress.total - sendingProgress.sent - sendingProgress.failed}
+                </div>
+                <div className="text-xs text-muted-foreground">Pending</div>
+              </div>
+            </div>
+
+            {/* Status Message */}
+            {sendingProgress.status === 'sending' && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Sending messages in batches...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3">
+            {sendingProgress.status === 'sending' ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handleCancelSend}
+                  disabled={cancelMutation.isPending}
+                >
+                  {cancelMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Cancel Send
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <Button onClick={handleCloseProgress}>
+                Close & View Dashboard
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Facebook Pages table
 CREATE TABLE IF NOT EXISTS facebook_pages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    facebook_page_id TEXT UNIQUE NOT NULL,
+    facebook_page_id TEXT NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     category TEXT,
@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS facebook_pages (
     access_token TEXT NOT NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT facebook_pages_user_page_unique UNIQUE (user_id, facebook_page_id)
 );
 
 -- Messages table
