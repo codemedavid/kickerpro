@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 // GET /api/messages/[id] - Get single message details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies();
@@ -15,7 +15,7 @@ export async function GET(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const messageId = params.id;
+    const { id: messageId } = await params;
     const supabase = await createClient();
 
     const { data: message, error } = await supabase
@@ -46,7 +46,7 @@ export async function GET(
 // DELETE /api/messages/[id] - Delete a message
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies();
@@ -56,7 +56,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const messageId = params.id;
+    const { id: messageId } = await params;
     const supabase = await createClient();
 
     const { error } = await supabase

@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies();
@@ -14,7 +14,7 @@ export async function POST(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const messageId = params.id;
+    const { id: messageId } = await params;
     const supabase = await createClient();
 
     console.log('[Cancel API] Cancelling message:', messageId);
