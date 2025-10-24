@@ -349,12 +349,27 @@ export default function ComposePage() {
 
       // Add uploaded files to attachments
       if (result.files && result.files.length > 0) {
-        setMediaAttachments(prev => [...prev, ...result.files]);
+        // Filter out files with errors
+        const successfulFiles = result.files.filter(file => !file.error && file.url);
+        const failedFiles = result.files.filter(file => file.error || !file.url);
         
-        toast({
-          title: "Media Added",
-          description: `${result.files.length} file(s) uploaded successfully`
-        });
+        if (successfulFiles.length > 0) {
+          setMediaAttachments(prev => [...prev, ...successfulFiles]);
+          
+          toast({
+            title: "Media Added",
+            description: `${successfulFiles.length} file(s) uploaded successfully`
+          });
+        }
+        
+        if (failedFiles.length > 0) {
+          console.warn('[Compose] Some files failed to upload:', failedFiles);
+          toast({
+            title: "Upload Warning",
+            description: `${failedFiles.length} file(s) failed to upload. Check console for details.`,
+            variant: "destructive"
+          });
+        }
       }
     } catch (error) {
       console.error('Error uploading media:', error);
