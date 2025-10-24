@@ -13,7 +13,8 @@ import {
   Send,
   ChevronLeft,
   ChevronRight,
-  TrendingUp
+  TrendingUp,
+  Tag as TagIcon
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,9 +25,13 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { format } from 'date-fns';
+import { TagFilter } from '@/components/ui/tag-filter';
+import { ConversationTags } from '@/components/ui/conversation-tags';
+import { TagSelector } from '@/components/ui/tag-selector';
 
 interface Conversation {
   id: string;
@@ -52,6 +57,10 @@ const MAX_SELECTABLE_CONTACTS = 2000;
 export default function ConversationsPage() {
   const router = useRouter();
   const { user } = useAuth();
+  
+  // Debug: Log user and query state
+  console.log('[Conversations] User:', user);
+  console.log('[Conversations] User ID:', user?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -61,6 +70,10 @@ export default function ConversationsPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [exceptTagIds, setExceptTagIds] = useState<string[]>([]);
+  const [bulkTagIds, setBulkTagIds] = useState<string[]>([]);
+  const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -85,19 +98,23 @@ export default function ConversationsPage() {
       hasMore: boolean;
     };
   }>({
-    queryKey: ['conversations', selectedPageId, startDate, endDate, currentPage],
+    queryKey: ['conversations', selectedPageId, startDate, endDate, currentPage, selectedTagIds, exceptTagIds],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedPageId !== 'all') params.append('pageId', selectedPageId);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
+      if (selectedTagIds.length > 0) params.append('tagIds', selectedTagIds.join(','));
+      if (exceptTagIds.length > 0) params.append('exceptTagIds', exceptTagIds.join(','));
       params.append('page', String(currentPage));
       params.append('limit', String(ITEMS_PER_PAGE));
 
       console.log('[Conversations] Fetching page', currentPage, 'with filters:', {
         pageId: selectedPageId,
         startDate: startDate || 'none',
-        endDate: endDate || 'none'
+        endDate: endDate || 'none',
+        tagIds: selectedTagIds.length > 0 ? selectedTagIds : 'none',
+        exceptTagIds: exceptTagIds.length > 0 ? exceptTagIds : 'none'
       });
 
       const response = await fetch(`/api/conversations?${params.toString()}`);
@@ -173,7 +190,77 @@ export default function ConversationsPage() {
     setEndDate('');
     setSearchQuery('');
     setSelectedPageId('all');
+    setSelectedTagIds([]);
+    setExceptTagIds([]);
     setCurrentPage(1);
+  };
+
+  // Bulk tag assignment mutation
+  const bulkTagMutation = useMutation({
+    mutationFn: async ({ conversationIds, tagIds }: { conversationIds: string[]; tagIds: string[] }) => {
+      const promises = conversationIds.map(conversationId => 
+        fetch(`/api/conversations/${conversationId}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tagIds })
+        })
+      );
+      
+      const responses = await Promise.all(promises);
+      const failed = responses.filter(r => !r.ok);
+      
+      if (failed.length > 0) {
+        throw new Error(`Failed to update ${failed.length} conversations`);
+      }
+      
+      return { success: true, updated: conversationIds.length };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      toast({
+        title: "Tags Applied",
+        description: `Successfully tagged ${data.updated} conversations`
+      });
+      setBulkTagIds([]);
+      setIsBulkTagDialogOpen(false);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to apply tags",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleBulkTagAssignment = () => {
+    if (selectedContacts.size === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select conversations to tag",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (bulkTagIds.length === 0) {
+      toast({
+        title: "No Tags Selected",
+        description: "Please select tags to apply",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Get conversation IDs for selected contacts
+    const conversationIds = conversations
+      .filter(conv => selectedContacts.has(conv.sender_id))
+      .map(conv => conv.id);
+
+    bulkTagMutation.mutate({
+      conversationIds,
+      tagIds: bulkTagIds
+    });
   };
 
   // Client-side search filter (applied after server-side pagination)
@@ -480,6 +567,13 @@ export default function ConversationsPage() {
                 <TrendingUp className="mr-2 w-4 h-4" />
                 Create {selectedContacts.size} Opportunit{selectedContacts.size === 1 ? 'y' : 'ies'}
               </Button>
+              <Button 
+                onClick={() => setIsBulkTagDialogOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <TagIcon className="mr-2 w-4 h-4" />
+                Tag {selectedContacts.size} Selected
+              </Button>
             </>
           )}
           <Button 
@@ -674,6 +768,19 @@ export default function ConversationsPage() {
               </div>
             </div>
           </div>
+
+          {/* Tag Filter */}
+          <div className="mt-4">
+            <Label>Filter by Tags</Label>
+            <div className="mt-2">
+              <TagFilter
+                selectedTagIds={selectedTagIds}
+                onTagChange={setSelectedTagIds}
+                exceptTagIds={exceptTagIds}
+                onExceptChange={setExceptTagIds}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -808,6 +915,11 @@ export default function ConversationsPage() {
                           <span>•</span>
                           <span>{conv.message_count} message(s)</span>
                         </div>
+                        
+                        {/* Conversation Tags */}
+                        <div className="mt-2">
+                          <ConversationTags conversationId={conv.id} />
+                        </div>
                       </div>
 
                       <div className="flex flex-col gap-2 ml-4">
@@ -928,6 +1040,41 @@ export default function ConversationsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Bulk Tag Assignment Dialog */}
+      <Dialog open={isBulkTagDialogOpen} onOpenChange={setIsBulkTagDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tag Selected Conversations</DialogTitle>
+            <DialogDescription>
+              Apply tags to {selectedContacts.size} selected conversation{selectedContacts.size !== 1 ? 's' : ''}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <TagSelector
+              selectedTagIds={bulkTagIds}
+              onTagChange={setBulkTagIds}
+              placeholder="Select tags to apply to all selected conversations..."
+            />
+            
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsBulkTagDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleBulkTagAssignment}
+                disabled={bulkTagMutation.isPending}
+              >
+                {bulkTagMutation.isPending ? 'Applying...' : 'Apply Tags'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

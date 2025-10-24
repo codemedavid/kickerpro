@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
   Send, 
@@ -9,7 +9,9 @@ import {
   CheckCircle,
   XCircle,
   Eye,
-  RefreshCw
+  RefreshCw,
+  X,
+  Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,7 +29,7 @@ interface SentMessage {
   page_id: string;
   recipient_type: 'all' | 'active' | 'selected';
   recipient_count: number;
-  status: 'sent' | 'failed' | 'sending';
+  status: 'sent' | 'failed' | 'sending' | 'cancelled' | 'partially_sent';
   sent_at: string | null;
   delivered_count: number;
   message_tag: string | null;
@@ -44,6 +46,7 @@ interface FacebookPage {
 export default function HistoryPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -94,6 +97,25 @@ export default function HistoryPage() {
     enabled: !!user?.id
   });
 
+  // Cancel mutation
+  const cancelMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await fetch(`/api/messages/${messageId}/cancel`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to cancel message');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+    }
+  });
+
   // Filter by page
   const filteredMessages = selectedPageId === 'all' 
     ? messages 
@@ -104,14 +126,41 @@ export default function HistoryPage() {
     return page?.name || 'Unknown Page';
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, messageId: string) => {
     switch (status) {
       case 'sent':
         return <Badge className="bg-green-600">Sent</Badge>;
       case 'failed':
         return <Badge className="bg-red-600">Failed</Badge>;
       case 'sending':
-        return <Badge className="bg-blue-600">Sending...</Badge>;
+        return (
+          <div className="flex items-center gap-2">
+            <Badge className="bg-blue-600">Sending...</Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => cancelMutation.mutate(messageId)}
+              disabled={cancelMutation.isPending}
+              className="h-6 px-2 text-xs"
+            >
+              {cancelMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  Cancelling...
+                </>
+              ) : (
+                <>
+                  <X className="w-3 h-3 mr-1" />
+                  Cancel
+                </>
+              )}
+            </Button>
+          </div>
+        );
+      case 'cancelled':
+        return <Badge className="bg-orange-600">Cancelled</Badge>;
+      case 'partially_sent':
+        return <Badge className="bg-yellow-600">Partially Sent</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -268,7 +317,7 @@ export default function HistoryPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-lg">{message.title}</h3>
-                          {getStatusBadge(message.status)}
+                          {getStatusBadge(message.status, message.id)}
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {message.content.substring(0, 150)}

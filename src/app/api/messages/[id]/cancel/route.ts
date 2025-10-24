@@ -1,94 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: messageId } = await params;
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
     if (!userId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      );
     }
-
-    const { id: messageId } = await params;
-    const supabase = await createClient();
 
     console.log('[Cancel API] Cancelling message:', messageId);
 
-    // Check if message exists and is sending
-    const { data: message, error: fetchError } = await supabase
+    const supabase = await createClient();
+
+    // Check if message exists and belongs to user
+    const { data: message, error: messageError } = await supabase
       .from('messages')
       .select('*')
       .eq('id', messageId)
       .eq('created_by', userId)
       .single();
 
-    if (fetchError || !message) {
+    if (messageError || !message) {
+      console.error('[Cancel API] Message not found:', messageError);
       return NextResponse.json(
-        { error: 'Message not found or unauthorized' },
+        { error: 'Message not found' },
         { status: 404 }
       );
     }
 
-    // Allow cancelling if message is sending, sent, or failed
-    if (!['sending', 'sent', 'failed'].includes(message.status)) {
+    // Only allow cancellation of sending messages
+    if (message.status !== 'sending') {
       return NextResponse.json(
-        { error: `Cannot cancel message with status: ${message.status}. Only sending/sent/failed messages can be cancelled.` },
+        { error: 'Message is not currently being sent' },
         { status: 400 }
       );
     }
-
-    console.log('[Cancel API] Current message status:', message.status);
 
     // Update message status to cancelled
     const { error: updateError } = await supabase
       .from('messages')
       .update({ 
         status: 'cancelled',
-        error_message: 'Cancelled by user'
+        cancelled_at: new Date().toISOString()
       })
       .eq('id', messageId);
 
     if (updateError) {
-      console.error('[Cancel API] Update error:', updateError);
+      console.error('[Cancel API] Failed to update message status:', updateError);
       return NextResponse.json(
         { error: 'Failed to cancel message' },
         { status: 500 }
       );
     }
 
-    // Mark pending batches as cancelled
+    // Log the cancellation
     await supabase
-      .from('message_batches')
-      .update({ status: 'cancelled' })
-      .eq('message_id', messageId)
-      .in('status', ['pending', 'processing']);
-
-    // Create activity log
-    await supabase
-      .from('message_activity')
+      .from('activity_logs')
       .insert({
-        message_id: messageId,
-        activity_type: 'cancelled',
-        description: `Message "${message.title}" cancelled by user`
+        user_id: userId,
+        action: 'message_cancelled',
+        details: {
+          message_id: messageId,
+          message_title: message.title,
+          recipient_count: message.recipient_count
+        }
       });
 
-    console.log('[Cancel API] Message cancelled successfully');
+    console.log('[Cancel API] Message cancelled successfully:', messageId);
 
     return NextResponse.json({
       success: true,
       message: 'Message cancelled successfully'
     });
+
   } catch (error) {
-    console.error('[Cancel API] Error:', error);
+    console.error('[Cancel API] Caught error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to cancel message' },
+      { 
+        error: error instanceof Error ? error.message : 'Failed to cancel message',
+        success: false
+      },
       { status: 500 }
     );
   }
 }
-

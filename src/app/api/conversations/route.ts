@@ -21,11 +21,13 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const status = searchParams.get('status') || 'active';
+    const tagIds = searchParams.get('tagIds');
+    const exceptTagIds = searchParams.get('exceptTagIds');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || String(ITEMS_PER_PAGE));
 
     console.log('[Conversations API] Fetching conversations for user:', userId);
-    console.log('[Conversations API] Filters (raw):', { internalPageId, startDate, endDate, status, page, limit });
+    console.log('[Conversations API] Filters (raw):', { internalPageId, startDate, endDate, status, tagIds, exceptTagIds, page, limit });
 
     const supabase = await createClient();
     
@@ -46,21 +48,100 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log('[Conversations API] Resolved filters:', { facebookPageId, startDate, endDate, status });
+    console.log('[Conversations API] Resolved filters:', { facebookPageId, startDate, endDate, status, tagIds, exceptTagIds });
 
-    // Build query for total count
-    let countQuery = supabase
-      .from('messenger_conversations')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('conversation_status', status);
+    // Parse tag IDs if provided
+    const tagIdArray = tagIds ? tagIds.split(',').filter(id => id.trim()) : [];
+    const exceptTagIdArray = exceptTagIds ? exceptTagIds.split(',').filter(id => id.trim()) : [];
+    
+    console.log('[Conversations API] Parsed tag arrays:', { 
+      tagIdArray, 
+      exceptTagIdArray, 
+      tagIds, 
+      exceptTagIds 
+    });
 
-    // Build query for data
-    let dataQuery = supabase
+    // Get conversation IDs for tag filtering
+    let conversationIds: string[] | null = null;
+    if (tagIdArray.length > 0) {
+      console.log('[Conversations API] Filtering by tags:', tagIdArray);
+      
+      const { data: taggedConversations, error: tagError } = await supabase
+        .from('conversation_tags')
+        .select('conversation_id')
+        .in('tag_id', tagIdArray);
+
+      if (tagError) {
+        console.error('[Conversations API] Error fetching tagged conversations:', tagError);
+        return NextResponse.json(
+          { error: 'Failed to filter by tags' },
+          { status: 500 }
+        );
+      }
+
+      conversationIds = taggedConversations?.map(ct => ct.conversation_id) || [];
+      
+      if (conversationIds.length === 0) {
+        return NextResponse.json({
+          success: true,
+          conversations: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasMore: false
+          }
+        });
+      }
+    }
+
+    // Get conversation IDs to exclude (optimized query)
+    let exceptedConversationIds: string[] | null = null;
+    if (exceptTagIdArray.length > 0) {
+      console.log('[Conversations API] Excluding conversations with tags:', exceptTagIdArray);
+      
+      // Use a more efficient query with distinct to avoid duplicates
+      const { data: exceptedConversations, error: exceptError } = await supabase
+        .from('conversation_tags')
+        .select('conversation_id')
+        .in('tag_id', exceptTagIdArray);
+
+      if (exceptError) {
+        console.error('[Conversations API] Error fetching excepted conversations:', exceptError);
+        return NextResponse.json(
+          { error: 'Failed to filter by except tags' },
+          { status: 500 }
+        );
+      }
+
+      exceptedConversationIds = exceptedConversations?.map(ct => ct.conversation_id) || [];
+      console.log('[Conversations API] Excluding', exceptedConversationIds.length, 'conversations with except tags');
+    }
+
+    // Build base query
+    let baseQuery = supabase
       .from('messenger_conversations')
       .select('*')
       .eq('user_id', userId)
       .eq('conversation_status', status);
+
+    console.log('[Conversations API] Base query created for user:', userId, 'status:', status);
+
+    // Apply include tag filter first
+    if (conversationIds && conversationIds.length > 0) {
+      console.log('[Conversations API] Applying include tag filter with', conversationIds.length, 'conversation IDs');
+      baseQuery = baseQuery.in('id', conversationIds);
+    } else {
+      console.log('[Conversations API] No include tag filter - loading all conversations');
+    }
+    
+    // Apply except tag filter - we'll handle this after getting the data
+    // to avoid Supabase parsing issues with large arrays
+
+    // Create count and data queries from base query
+    let countQuery = baseQuery.select('*', { count: 'exact', head: true });
+    let dataQuery = baseQuery.select('*');
 
     // Apply filters to both queries - use facebook_page_id, not internal ID
     if (facebookPageId) {
@@ -102,9 +183,15 @@ export async function GET(request: NextRequest) {
 
     // Apply pagination to data query
     const offset = (page - 1) * limit;
+    
+    // If we have exclusions, get more data to account for filtered results
+    const queryLimit = exceptedConversationIds && exceptedConversationIds.length > 0 
+      ? limit * 3  // Get 3x the limit to account for exclusions
+      : limit;
+    
     dataQuery = dataQuery
       .order('last_message_time', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .range(offset, offset + queryLimit - 1);
 
     const { data: conversations, error: dataError } = await dataQuery;
 
@@ -118,9 +205,22 @@ export async function GET(request: NextRequest) {
 
     console.log('[Conversations API] Found', conversations?.length || 0, 'conversations for page', page, 'of', totalPages);
 
+    // Apply exclude filter after getting the data
+    let finalConversations = conversations || [];
+    if (exceptedConversationIds && exceptedConversationIds.length > 0) {
+      console.log('[Conversations API] Filtering out excluded conversations in application layer');
+      finalConversations = finalConversations.filter(conv => 
+        !exceptedConversationIds.includes(conv.id)
+      );
+      console.log('[Conversations API] After exclude filter:', finalConversations.length, 'conversations remaining');
+      
+      // Take only the first 'limit' conversations to maintain pagination
+      finalConversations = finalConversations.slice(0, limit);
+    }
+
     return NextResponse.json({
       success: true,
-      conversations: conversations || [],
+      conversations: finalConversations,
       pagination: {
         page,
         limit,

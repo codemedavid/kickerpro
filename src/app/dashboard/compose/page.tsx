@@ -52,7 +52,8 @@ export default function ComposePage() {
     messageType: 'immediate' as 'immediate' | 'scheduled' | 'draft',
     scheduleDate: '',
     scheduleTime: '',
-    messageTag: 'none' as 'none' | 'ACCOUNT_UPDATE' | 'CONFIRMED_EVENT_UPDATE' | 'POST_PURCHASE_UPDATE' | 'HUMAN_AGENT'
+    messageTag: 'none' as 'none' | 'ACCOUNT_UPDATE' | 'CONFIRMED_EVENT_UPDATE' | 'POST_PURCHASE_UPDATE' | 'HUMAN_AGENT',
+    autoTagId: 'none'
   });
 
   const [selectedContacts, setSelectedContacts] = useState<SelectedContact[]>([]);
@@ -121,6 +122,22 @@ export default function ComposePage() {
       const response = await fetch('/api/pages');
       if (!response.ok) throw new Error('Failed to fetch pages');
       return response.json();
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch user's tags
+  const { data: tags = [] } = useQuery<{
+    id: string;
+    name: string;
+    color: string;
+  }[]>({
+    queryKey: ['tags'],
+    queryFn: async () => {
+      const response = await fetch('/api/tags');
+      if (!response.ok) throw new Error('Failed to fetch tags');
+      const data = await response.json();
+      return data.tags || [];
     },
     enabled: !!user?.id
   });
@@ -195,6 +212,31 @@ export default function ComposePage() {
 
       const result = await response.json();
       console.log('[Compose] Message created:', result.message.id);
+
+      // Step 1.5: Create auto-tag if specified
+      if (formData.autoTagId && formData.autoTagId !== 'none') {
+        try {
+          const autoTagResponse = await fetch('/api/message-auto-tags', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message_id: result.message.id,
+              tag_id: formData.autoTagId
+            }),
+          });
+
+          if (autoTagResponse.ok) {
+            console.log('[Compose] Auto-tag configured for message:', result.message.id);
+          } else {
+            console.error('[Compose] Failed to configure auto-tag:', await autoTagResponse.text());
+          }
+        } catch (error) {
+          console.error('[Compose] Auto-tag error:', error);
+          // Don't fail the entire operation if auto-tag fails
+        }
+      }
 
       // Step 2: If immediate send, trigger the appropriate send API in background and show progress
       if (data.status === 'sent') {
@@ -321,7 +363,7 @@ export default function ComposePage() {
             try {
               const error = await response.json();
               errorMessage = error.error || 'Upload failed';
-             } catch (_jsonError) {
+             } catch {
               errorMessage = `Upload failed with status ${response.status}`;
             }
             throw new Error(errorMessage);
@@ -408,37 +450,50 @@ export default function ComposePage() {
     // Poll every 2 seconds
     pollInterval.current = setInterval(async () => {
       try {
-        const response = await fetch(`/api/messages/${messageId}`);
-        if (!response.ok) throw new Error('Failed to fetch message status');
+        const response = await fetch(`/api/messages/${messageId}/batches`);
+        if (!response.ok) throw new Error('Failed to fetch batch status');
         
-        const message = await response.json();
+        const data = await response.json();
         
-        // Update progress with correct field names
-        const sentCount = message.sent_count || 0;
-        const failedCount = message.failed_count || 0;
-        const totalCount = message.recipient_count || 0;
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch batch data');
+        }
         
-        console.log('[Polling] Message status update:', {
-          status: message.status,
+        const { summary } = data;
+        
+        // Update progress with batch data
+        const sentCount = summary.sent || 0;
+        const failedCount = summary.failed_messages || 0;
+        const totalCount = summary.total_recipients || 0;
+        
+        console.log('[Polling] Batch status update:', {
+          total_batches: summary.total_batches,
+          completed: summary.completed,
+          processing: summary.processing,
+          pending: summary.pending,
           sent: sentCount,
           failed: failedCount,
           total: totalCount
         });
+        
+        // Determine overall status
+        let status = 'sending';
+        if (summary.completed === summary.total_batches && summary.total_batches > 0) {
+          status = 'completed';
+        } else if (summary.failed_batches > 0 && summary.completed + summary.failed_batches === summary.total_batches) {
+          status = 'completed'; // Some failed but all batches processed
+        }
         
         setSendingProgress(prev => ({
           ...prev,
           sent: sentCount,
           failed: failedCount,
           total: totalCount,
-          status: message.status === 'sending' ? 'sending' : 
-                  message.status === 'cancelled' ? 'cancelled' :
-                  message.status === 'failed' ? 'error' : 
-                  message.status === 'sent' ? 'completed' :
-                  message.status === 'partially_sent' ? 'completed' : 'completed'
+          status: status as 'sending' | 'completed' | 'cancelled' | 'error'
         }));
 
-        // Stop polling if completed, cancelled, or failed
-        if (message.status !== 'sending') {
+        // Stop polling if all batches are completed
+        if (status === 'completed') {
           if (pollInterval.current) {
             clearInterval(pollInterval.current);
             pollInterval.current = null;
@@ -776,6 +831,55 @@ export default function ComposePage() {
                   <p className="text-sm text-yellow-800">
                     <strong>⚠️ Important:</strong> Message tags must be used appropriately. 
                     Sending promotional content with tags can result in your app being suspended by Facebook.
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Auto-tag Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Auto-tag Conversations (Optional)</CardTitle>
+            <CardDescription>
+              Automatically tag conversations that receive this message successfully
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <Label htmlFor="auto-tag">Select Auto-tag</Label>
+              <Select
+                value={formData.autoTagId}
+                onValueChange={(value) => setFormData({ ...formData, autoTagId: value })}
+              >
+                <SelectTrigger id="auto-tag">
+                  <SelectValue placeholder="No auto-tag" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    <div className="flex flex-col">
+                      <span className="font-medium">No Auto-tag</span>
+                      <span className="text-xs text-muted-foreground">Don&apos;t automatically tag conversations</span>
+                    </div>
+                  </SelectItem>
+                  {tags.map((tag) => (
+                    <SelectItem key={tag.id} value={tag.id}>
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded-full border" 
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        {tag.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formData.autoTagId && formData.autoTagId !== 'none' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>🏷️ Auto-tagging:</strong> All conversations that successfully receive this message will be automatically tagged.
                   </p>
                 </div>
               )}

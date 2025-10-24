@@ -308,6 +308,60 @@ export async function POST(
           : `Message "${message.title}" sent to ${sentCount} recipients (${failedCount} failed)`
       });
 
+    // Auto-tag successful conversations if there are any
+    if (sentCount > 0 && !wasCancelled) {
+      try {
+        // Get conversation IDs for successfully sent recipients
+        const successfulRecipients = results
+          .filter(r => r.success)
+          .map(r => r.recipient_id);
+
+        if (successfulRecipients.length > 0) {
+          // Get conversation IDs for these recipients
+          const { data: conversations } = await supabase
+            .from('messenger_conversations')
+            .select('id')
+            .eq('page_id', page.facebook_page_id)
+            .in('sender_id', successfulRecipients);
+
+          if (conversations && conversations.length > 0) {
+            const conversationIds = conversations.map(c => c.id);
+            
+            // Check if there's an auto-tag configured for this message
+            const { data: autoTag } = await supabase
+              .from('message_auto_tags')
+              .select('tag_id')
+              .eq('message_id', messageId)
+              .single();
+
+            if (autoTag) {
+              // Call auto-tag API
+              const autoTagResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/conversations/auto-tag`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Cookie': request.headers.get('cookie') || ''
+                },
+                body: JSON.stringify({
+                  conversationIds,
+                  tagIds: [autoTag.tag_id]
+                })
+              });
+
+              if (autoTagResponse.ok) {
+                console.log('[Send API] Auto-tagged', conversationIds.length, 'conversations');
+              } else {
+                console.error('[Send API] Auto-tag failed:', await autoTagResponse.text());
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Send API] Auto-tag error:', error);
+        // Don't fail the entire send operation if auto-tag fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       sent: sentCount,
