@@ -349,9 +349,9 @@ export default function ComposePage() {
 
       // Add uploaded files to attachments
       if (result.files && result.files.length > 0) {
-        // Filter out files with errors
-        const successfulFiles = result.files.filter(file => !file.error && file.url);
-        const failedFiles = result.files.filter(file => file.error || !file.url);
+         // Filter out files with errors
+         const successfulFiles = result.files.filter((file: { error?: string; url?: string }) => !file.error && file.url);
+         const failedFiles = result.files.filter((file: { error?: string; url?: string }) => file.error || !file.url);
         
         if (successfulFiles.length > 0) {
           setMediaAttachments(prev => [...prev, ...successfulFiles]);

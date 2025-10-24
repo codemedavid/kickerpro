@@ -57,7 +57,7 @@ export async function uploadFilesDirectly(
       console.log(`[Direct Upload] Uploading ${file.name} to Supabase Storage as ${filePath}`);
 
        // Upload to Supabase Storage directly from client
-       const { data: uploadData, error: uploadError } = await supabase.storage
+       const { error: uploadError } = await supabase.storage
         .from('media')
         .upload(filePath, file, {
           cacheControl: '3600',
