@@ -1,20 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Increase body size limit for file uploads
-  experimental: {
-    serverComponentsExternalPackages: ['@supabase/supabase-js']
-  },
-  // Configure API routes
-  api: {
-    bodyParser: {
-      sizeLimit: '25mb', // 25MB limit
-    },
-  },
-  // Configure serverless function limits
-  serverless: {
-    // Increase timeout for file uploads
-    timeout: 30,
-  },
+  // Move serverComponentsExternalPackages to the correct location
+  serverExternalPackages: ['@supabase/supabase-js'],
   // Headers for file uploads
   async headers() {
     return [

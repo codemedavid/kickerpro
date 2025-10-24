@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { uploadFilesDirectly } from '@/lib/supabase/client-upload';
 
 interface FacebookPage {
   id: string;
@@ -291,42 +292,59 @@ export default function ComposePage() {
     setUploadingMedia(true);
 
     try {
-      // Create FormData for file upload
-      const uploadFormData = new FormData();
-      Array.from(files).forEach(file => {
-        uploadFormData.append('files', file);
-      });
-      
-      // Add page ID for Facebook upload
-      if (formData.pageId) {
-        uploadFormData.append('pageId', formData.pageId);
-      }
-
-      // Upload files to server using Supabase Storage
-      const response = await fetch('/api/upload-supabase', {
-        method: 'POST',
-        body: uploadFormData
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Upload failed';
-        try {
-          const error = await response.json();
-          errorMessage = error.error || 'Upload failed';
-        } catch (jsonError) {
-          console.error('[Compose] Failed to parse error response:', jsonError);
-          errorMessage = `Upload failed with status ${response.status}`;
-        }
-        throw new Error(errorMessage);
-      }
-
       let result;
+      
+      // Try server-side upload first
       try {
+        const uploadFormData = new FormData();
+        Array.from(files).forEach(file => {
+          uploadFormData.append('files', file);
+        });
+        
+        if (formData.pageId) {
+          uploadFormData.append('pageId', formData.pageId);
+        }
+
+        const response = await fetch('/api/upload-supabase', {
+          method: 'POST',
+          body: uploadFormData
+        });
+
+        if (!response.ok) {
+          // If 413 error, try direct upload
+          if (response.status === 413) {
+            console.log('[Compose] Server upload failed with 413, trying direct upload...');
+            throw new Error('FILE_TOO_LARGE_FOR_SERVER');
+          }
+          
+          let errorMessage = 'Upload failed';
+          try {
+            const error = await response.json();
+            errorMessage = error.error || 'Upload failed';
+          } catch (_jsonError) {
+            errorMessage = `Upload failed with status ${response.status}`;
+          }
+          throw new Error(errorMessage);
+        }
+
         result = await response.json();
-        console.log('[Compose] Upload result:', result);
-      } catch (jsonError) {
-        console.error('[Compose] Failed to parse upload response:', jsonError);
-        throw new Error('Invalid response from upload server');
+        console.log('[Compose] Server upload result:', result);
+        
+      } catch (serverError) {
+        // If server upload fails (especially 413), try direct upload
+        const errorMessage = serverError instanceof Error ? serverError.message : String(serverError);
+        if (errorMessage === 'FILE_TOO_LARGE_FOR_SERVER' || errorMessage.includes('413')) {
+          console.log('[Compose] Trying direct Supabase upload...');
+          
+          if (!user?.id) {
+            throw new Error('User not authenticated');
+          }
+          
+          result = await uploadFilesDirectly(Array.from(files), user.id);
+          console.log('[Compose] Direct upload result:', result);
+        } else {
+          throw serverError;
+        }
       }
 
       // Add uploaded files to attachments
