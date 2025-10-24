@@ -9,6 +9,7 @@ interface UploadedMedia {
   filename?: string;
   size?: number;
   mime_type?: string;
+  error?: string;
 }
 
 export async function POST(request: NextRequest) {

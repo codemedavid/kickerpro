@@ -3,7 +3,7 @@
  * Run this to verify your Supabase Storage is configured correctly
  */
 
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
 // Replace with your Supabase credentials
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

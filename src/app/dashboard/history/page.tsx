@@ -63,7 +63,7 @@ export default function HistoryPage() {
   const { data: messages = [], isLoading, refetch } = useQuery<SentMessage[]>({
     queryKey: ['sent-messages', user?.id, selectedPageId, selectedStatus],
     queryFn: async () => {
-      const params = new URLSearchParams();
+      // const params = new URLSearchParams();
       
       if (selectedStatus === 'all') {
         // Fetch both sent and failed
