@@ -24,12 +24,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check content length first
+    const contentLength = request.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > 25 * 1024 * 1024) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'File too large. Maximum size is 25MB.',
+          files: []
+        },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
 
     if (!files || files.length === 0) {
       return NextResponse.json(
-        { error: 'No files provided' },
+        { 
+          success: false,
+          error: 'No files provided',
+          files: []
+        },
         { status: 400 }
       );
     }
