@@ -309,12 +309,25 @@ export default function ComposePage() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        let errorMessage = 'Upload failed';
+        try {
+          const error = await response.json();
+          errorMessage = error.error || 'Upload failed';
+        } catch (jsonError) {
+          console.error('[Compose] Failed to parse error response:', jsonError);
+          errorMessage = `Upload failed with status ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
-      console.log('[Compose] Upload result:', result);
+      let result;
+      try {
+        result = await response.json();
+        console.log('[Compose] Upload result:', result);
+      } catch (jsonError) {
+        console.error('[Compose] Failed to parse upload response:', jsonError);
+        throw new Error('Invalid response from upload server');
+      }
 
       // Add uploaded files to attachments
       if (result.files && result.files.length > 0) {

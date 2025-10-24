@@ -139,8 +139,16 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[Upload Supabase API] Caught error:', error);
+    
+    // Ensure we always return valid JSON
+    const errorMessage = error instanceof Error ? error.message : 'Failed to upload files';
+    
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to upload files' },
+      { 
+        success: false,
+        error: errorMessage,
+        files: []
+      },
       { status: 500 }
     );
   }
