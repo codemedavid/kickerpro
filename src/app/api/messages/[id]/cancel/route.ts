@@ -34,12 +34,15 @@ export async function POST(
       );
     }
 
-    if (message.status !== 'sending') {
+    // Allow cancelling if message is sending, sent, or failed
+    if (!['sending', 'sent', 'failed'].includes(message.status)) {
       return NextResponse.json(
-        { error: `Cannot cancel message with status: ${message.status}` },
+        { error: `Cannot cancel message with status: ${message.status}. Only sending/sent/failed messages can be cancelled.` },
         { status: 400 }
       );
     }
+
+    console.log('[Cancel API] Current message status:', message.status);
 
     // Update message status to cancelled
     const { error: updateError } = await supabase

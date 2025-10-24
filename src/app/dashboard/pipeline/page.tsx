@@ -14,14 +14,14 @@ import {
   Trash2,
   Target
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { format, parseISO } from 'date-fns';
-import { cn } from '@/lib/utils';
+// import { cn } from '@/lib/utils';
 
 interface PipelineStage {
   id: string;
@@ -52,7 +52,7 @@ export default function PipelinePage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  // const [selectedStage, setSelectedStage] = useState<string | null>(null);
 
   // Fetch pipeline stages
   const { data: stages = [], isLoading: stagesLoading } = useQuery<PipelineStage[]>({

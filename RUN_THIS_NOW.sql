@@ -15,6 +15,14 @@ ALTER TABLE messages
 ADD CONSTRAINT messages_recipient_type_check 
 CHECK (recipient_type IN ('all', 'active', 'selected'));
 
+-- 1b. Fix status constraint to include 'cancelled'
+ALTER TABLE messages 
+DROP CONSTRAINT IF EXISTS messages_status_check;
+
+ALTER TABLE messages 
+ADD CONSTRAINT messages_status_check 
+CHECK (status IN ('draft', 'scheduled', 'sending', 'sent', 'failed', 'cancelled'));
+
 -- 2. Add selected_recipients column (if not exists)
 ALTER TABLE messages 
 ADD COLUMN IF NOT EXISTS selected_recipients TEXT[];
@@ -32,7 +40,7 @@ CREATE TABLE IF NOT EXISTS message_batches (
     total_batches INTEGER NOT NULL,
     recipients TEXT[] NOT NULL,
     recipient_count INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
     sent_count INTEGER DEFAULT 0,
     failed_count INTEGER DEFAULT 0,
     error_message TEXT,
@@ -42,6 +50,14 @@ CREATE TABLE IF NOT EXISTS message_batches (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(message_id, batch_number)
 );
+
+-- 4b. Fix existing batch status constraint to include 'cancelled'
+ALTER TABLE message_batches 
+DROP CONSTRAINT IF EXISTS message_batches_status_check;
+
+ALTER TABLE message_batches 
+ADD CONSTRAINT message_batches_status_check 
+CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'));
 
 -- 5. Create indexes
 CREATE INDEX IF NOT EXISTS idx_message_batches_message_id ON message_batches(message_id);

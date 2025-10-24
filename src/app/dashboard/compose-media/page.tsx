@@ -37,11 +37,12 @@ interface MediaAttachment {
   size?: number;
 }
 
-export default function ComposePage() {
+export default function ComposeMediaPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -57,7 +58,6 @@ export default function ComposePage() {
   const [selectedContacts, setSelectedContacts] = useState<SelectedContact[]>([]);
   const [mediaAttachments, setMediaAttachments] = useState<MediaAttachment[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendingProgress, setSendingProgress] = useState<{
     isOpen: boolean;
     messageId: string | null;
@@ -91,7 +91,6 @@ export default function ComposePage() {
             sender_name: c.sender_name
           })));
           
-          // Auto-select the page if specified
           if (data.pageId) {
             setFormData(prev => ({ ...prev, pageId: data.pageId as string, recipientType: 'selected' }));
           } else {
@@ -103,16 +102,13 @@ export default function ComposePage() {
             description: `${data.contacts.length} contact(s) ready to message`
           });
           
-          // Clear from sessionStorage
           sessionStorage.removeItem('selectedContacts');
         }
       } catch (e) {
         console.error('Error loading selected contacts:', e);
       }
     }
-    // Run only on mount - intentional state initialization
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toast]);
 
   const { data: pages = [], isLoading: pagesLoading } = useQuery<FacebookPage[]>({
     queryKey: ['pages', user?.id],
@@ -137,9 +133,8 @@ export default function ComposePage() {
       selected_recipients?: string[];
       media_attachments?: MediaAttachment[];
     }) => {
-      console.log('[Compose] Submitting message:', data);
+      console.log('[Compose Media] Submitting message:', data);
       
-      // Step 1: Create the message in database
       const response = await fetch('/api/messages', {
         method: 'POST',
         headers: {
@@ -148,15 +143,10 @@ export default function ComposePage() {
         body: JSON.stringify(data),
       });
 
-      console.log('[Compose] Response status:', response.status);
-      console.log('[Compose] Response headers:', Object.fromEntries(response.headers.entries()));
-
       if (!response.ok) {
         let error;
         let errorText = '';
         const contentType = response.headers.get('content-type');
-        
-        console.log('[Compose] Response not OK. Content-Type:', contentType);
         
         try {
           if (contentType && contentType.includes('application/json')) {
@@ -167,25 +157,9 @@ export default function ComposePage() {
             error = { error: errorText || `HTTP ${response.status}` };
           }
         } catch (parseError) {
-          console.error('[Compose] Error parsing response:', parseError);
+          console.error('[Compose Media] Error parsing response:', parseError);
           errorText = 'Failed to parse error response';
           error = { error: errorText };
-        }
-        
-        console.error('[Compose] API error response:', error);
-        console.error('[Compose] Full error text:', errorText);
-        
-        // Check for database constraint error
-        if (errorText.includes('messages_recipient_type_check') || 
-            errorText.includes('violates check constraint')) {
-          throw new Error(
-            '⚠️ DATABASE UPDATE REQUIRED!\n\n' +
-            'Please run this SQL in Supabase SQL Editor:\n\n' +
-            'ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_recipient_type_check;\n' +
-            'ALTER TABLE messages ADD CONSTRAINT messages_recipient_type_check CHECK (recipient_type IN (\'all\', \'active\', \'selected\'));\n' +
-            'ALTER TABLE messages ADD COLUMN IF NOT EXISTS selected_recipients TEXT[];\n\n' +
-            'See database-update.sql for details.'
-          );
         }
         
         const errorMessage = error.error || error.details || error.message || errorText || `Failed to create message (HTTP ${response.status})`;
@@ -193,25 +167,16 @@ export default function ComposePage() {
       }
 
       const result = await response.json();
-      console.log('[Compose] Message created:', result.message.id);
+      console.log('[Compose Media] Message created:', result.message.id);
 
-      // Step 2: If immediate send, trigger the appropriate send API in background and show progress
+      // If immediate send, trigger the enhanced send API
       if (data.status === 'sent') {
-        console.log('[Compose] Triggering immediate send in background...');
+        console.log('[Compose Media] Triggering immediate send with media support...');
         
-        // Use enhanced API if media attachments are present
-        const hasMedia = data.media_attachments && data.media_attachments.length > 0;
-        const apiEndpoint = hasMedia 
-          ? `/api/messages/${result.message.id}/send-enhanced`
-          : `/api/messages/${result.message.id}/send`;
-        
-        console.log('[Compose] Using API endpoint:', apiEndpoint);
-        
-        // Start sending in background (non-blocking)
-        fetch(apiEndpoint, {
+        fetch(`/api/messages/${result.message.id}/send-enhanced`, {
           method: 'POST'
         }).catch(error => {
-          console.error('[Compose] Background send error:', error);
+          console.error('[Compose Media] Background send error:', error);
         });
         
         return {
@@ -227,9 +192,8 @@ export default function ComposePage() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['activities'] });
 
-      // If immediate send, open progress modal and start polling
       if (data.isImmediateSend) {
-        console.log('[Compose] Starting progress tracking for message:', data.message.id);
+        console.log('[Compose Media] Starting progress tracking for message:', data.message.id);
         
         setSendingProgress({
           isOpen: true,
@@ -240,14 +204,10 @@ export default function ComposePage() {
           status: 'sending'
         });
         
-        // Start polling for progress
         startPolling(data.message.id);
-        
-        // Clear selected contacts and media
         setSelectedContacts([]);
         setMediaAttachments([]);
       } else {
-        // For scheduled/draft, show success and redirect
         toast({
           title: "Success!",
           description: formData.messageType === 'scheduled'
@@ -255,7 +215,6 @@ export default function ComposePage() {
             : "Draft saved successfully!"
         });
 
-        // Clear selected contacts and media
         setSelectedContacts([]);
         setMediaAttachments([]);
         
@@ -265,7 +224,7 @@ export default function ComposePage() {
       }
     },
     onError: (error: Error) => {
-      console.error('[Compose] Mutation error:', error);
+      console.error('[Compose Media] Mutation error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to process message. Please try again.",
@@ -283,83 +242,12 @@ export default function ComposePage() {
     };
   }, []);
 
-  // Media handling functions
-  const handleMediaUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    setUploadingMedia(true);
-
-    try {
-      // Create FormData for file upload
-      const uploadFormData = new FormData();
-      Array.from(files).forEach(file => {
-        uploadFormData.append('files', file);
-      });
-      
-      // Add page ID for Facebook upload
-      if (formData.pageId) {
-        uploadFormData.append('pageId', formData.pageId);
-      }
-
-      // Upload files to server using Supabase Storage
-      const response = await fetch('/api/upload-supabase', {
-        method: 'POST',
-        body: uploadFormData
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-
-      const result = await response.json();
-      console.log('[Compose] Upload result:', result);
-
-      // Add uploaded files to attachments
-      if (result.files && result.files.length > 0) {
-        setMediaAttachments(prev => [...prev, ...result.files]);
-        
-        toast({
-          title: "Media Added",
-          description: `${result.files.length} file(s) uploaded successfully`
-        });
-      }
-    } catch (error) {
-      console.error('Error uploading media:', error);
-      toast({
-        title: "Upload Error",
-        description: error instanceof Error ? error.message : "Failed to upload media files. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setUploadingMedia(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  const removeMediaAttachment = (index: number) => {
-    setMediaAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const getMediaIcon = (type: string) => {
-    switch (type) {
-      case 'image': return <Image className="w-4 h-4" />;
-      case 'video': return <Video className="w-4 h-4" />;
-      case 'audio': return <File className="w-4 h-4" />;
-      default: return <File className="w-4 h-4" />;
-    }
-  };
-
   // Polling function to check message sending progress
   const startPolling = (messageId: string) => {
     if (pollInterval.current) {
       clearInterval(pollInterval.current);
     }
 
-    // Poll every 2 seconds
     pollInterval.current = setInterval(async () => {
       try {
         const response = await fetch(`/api/messages/${messageId}`);
@@ -367,7 +255,6 @@ export default function ComposePage() {
         
         const message = await response.json();
         
-        // Update progress
         setSendingProgress(prev => ({
           ...prev,
           sent: message.delivered_count || 0,
@@ -377,7 +264,6 @@ export default function ComposePage() {
                   message.status === 'failed' ? 'error' : 'completed'
         }));
 
-        // Stop polling if completed, cancelled, or failed
         if (message.status !== 'sending') {
           if (pollInterval.current) {
             clearInterval(pollInterval.current);
@@ -444,6 +330,74 @@ export default function ComposePage() {
     router.push('/dashboard');
   };
 
+  // Media handling functions
+  const handleMediaUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingMedia(true);
+
+    try {
+      for (const file of Array.from(files)) {
+        // Validate file type and size
+        const maxSize = 25 * 1024 * 1024; // 25MB
+        if (file.size > maxSize) {
+          toast({
+            title: "File Too Large",
+            description: `${file.name} is larger than 25MB. Please choose a smaller file.`,
+            variant: "destructive"
+          });
+          continue;
+        }
+
+        // Determine media type
+        let mediaType: 'image' | 'video' | 'audio' | 'file' = 'file';
+        if (file.type.startsWith('image/')) {
+          mediaType = 'image';
+        } else if (file.type.startsWith('video/')) {
+          mediaType = 'video';
+        } else if (file.type.startsWith('audio/')) {
+          mediaType = 'audio';
+        }
+
+        // For demo purposes, we'll use a placeholder URL
+        // In production, you'd upload to a cloud storage service
+        const mockUrl = `https://example.com/uploads/${Date.now()}-${file.name}`;
+        
+        const attachment: MediaAttachment = {
+          type: mediaType,
+          url: mockUrl,
+          is_reusable: true,
+          filename: file.name,
+          size: file.size
+        };
+
+        setMediaAttachments(prev => [...prev, attachment]);
+      }
+
+      toast({
+        title: "Media Added",
+        description: `${files.length} file(s) added to your message`
+      });
+    } catch (error) {
+      console.error('Error uploading media:', error);
+      toast({
+        title: "Upload Error",
+        description: "Failed to upload media files. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingMedia(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const removeMediaAttachment = (index: number) => {
+    setMediaAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const selectedPage = pages.find(p => p.id === formData.pageId);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -495,27 +449,29 @@ export default function ComposePage() {
       status,
       scheduled_for: scheduledFor,
       message_tag: formData.messageTag === 'none' ? null : formData.messageTag,
-      ...(mediaAttachments.length > 0 && {
-        media_attachments: mediaAttachments
-      }),
+      media_attachments: mediaAttachments.length > 0 ? mediaAttachments : undefined,
       ...(formData.recipientType === 'selected' && selectedContacts.length > 0 && {
         selected_recipients: selectedContacts.map(c => c.sender_id)
-        // selected_contacts_data: selectedContacts.map(c => ({
-        //   sender_id: c.sender_id,
-        //   sender_name: c.sender_name
-        // }))
       })
     };
 
-    console.log('[Compose] Sending message data:', messageData);
-
+    console.log('[Compose Media] Sending message data:', messageData);
     sendMutation.mutate(messageData);
   };
 
   const getPreviewMessage = () => {
     return formData.content
-      .replace(/{first_name}/g, 'Maria')
-      .replace(/{last_name}/g, 'Santos');
+      .replace(/\{first_name\}/g, 'Maria')
+      .replace(/\{last_name\}/g, 'Santos');
+  };
+
+  const getMediaIcon = (type: string) => {
+    switch (type) {
+      case 'image': return <Image className="w-4 h-4" />;
+      case 'video': return <Video className="w-4 h-4" />;
+      case 'audio': return <File className="w-4 h-4" />;
+      default: return <File className="w-4 h-4" />;
+    }
   };
 
   return (
@@ -526,9 +482,9 @@ export default function ComposePage() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Compose Bulk Message</h1>
+          <h1 className="text-3xl font-bold">Compose Media Message</h1>
           <p className="text-muted-foreground">
-            Create and send messages to your Facebook page followers
+            Create and send messages with media attachments to your Facebook page followers
           </p>
         </div>
       </div>
@@ -600,7 +556,7 @@ export default function ComposePage() {
         {/* Media Attachments */}
         <Card>
           <CardHeader>
-            <CardTitle>Media Attachments (Optional)</CardTitle>
+            <CardTitle>Media Attachments</CardTitle>
             <CardDescription>Add images, videos, audio, or documents to your message</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -807,9 +763,9 @@ export default function ComposePage() {
                     Selected Contacts ({selectedContacts.length})
                   </CardTitle>
                   <CardDescription className="text-purple-700">
-                    {selectedContacts.length <= 100 
+                    {selectedContacts.length <= 50 
                       ? 'Will be sent in 1 batch'
-                      : `Will be sent in ${Math.ceil(selectedContacts.length / 100)} batches of 100 each`}
+                      : `Will be sent in ${Math.ceil(selectedContacts.length / 50)} batches of 50 each`}
                   </CardDescription>
                 </div>
                 <Button
@@ -827,33 +783,8 @@ export default function ComposePage() {
               </div>
             </CardHeader>
             <CardContent>
-              {/* Batch Info */}
-              {selectedContacts.length > 100 && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    <strong>📦 Batching:</strong> Your {selectedContacts.length} contacts will be split into {Math.ceil(selectedContacts.length / 100)} batches:
-                  </p>
-                  <ul className="text-xs text-blue-700 mt-2 ml-4 list-disc">
-                    {Array.from({ length: Math.ceil(selectedContacts.length / 100) }, (_, i) => {
-                      const start = i * 100 + 1;
-                      const end = Math.min((i + 1) * 100, selectedContacts.length);
-                      const count = end - start + 1;
-                      return (
-                        <li key={i}>
-                          Batch {i + 1}: {count} recipient{count !== 1 ? 's' : ''} (#{start}-#{end})
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <p className="text-xs text-blue-700 mt-2">
-                    ⏱️ Estimated time: ~{Math.ceil(selectedContacts.length * 0.1 / 60)} minute{Math.ceil(selectedContacts.length * 0.1 / 60) !== 1 ? 's' : ''}
-                  </p>
-                </div>
-              )}
-
-              {/* Contact List (show first 50, then summary) */}
               <div className="flex flex-wrap gap-2">
-                {selectedContacts.slice(0, 50).map((contact, index) => (
+                {selectedContacts.slice(0, 20).map((contact, index) => (
                   <Badge key={index} variant="secondary" className="px-3 py-2">
                     {contact.sender_name || `User ${contact.sender_id.substring(0, 8)}`}
                     <button
@@ -866,9 +797,9 @@ export default function ComposePage() {
                     </button>
                   </Badge>
                 ))}
-                {selectedContacts.length > 50 && (
+                {selectedContacts.length > 20 && (
                   <Badge variant="outline" className="px-3 py-2 border-2 border-dashed">
-                    + {selectedContacts.length - 50} more contacts
+                    + {selectedContacts.length - 20} more contacts
                   </Badge>
                 )}
               </div>
@@ -1114,4 +1045,3 @@ export default function ComposePage() {
     </div>
   );
 }
-

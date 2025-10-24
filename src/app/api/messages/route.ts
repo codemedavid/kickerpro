@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     console.log('[Messages API] Request body:', JSON.stringify(body, null, 2));
+    console.log('[Messages API] Media attachments received:', body.media_attachments);
 
     const {
       title,
@@ -86,7 +87,9 @@ export async function POST(request: NextRequest) {
       status,
       scheduled_for,
       selected_recipients,
-      message_tag
+      // selected_contacts_data,
+      message_tag,
+      media_attachments
     } = body;
 
     // Validation
@@ -120,6 +123,13 @@ export async function POST(request: NextRequest) {
       scheduled_for: string | null;
       message_tag: string | null;
       selected_recipients?: string[];
+      selected_contacts_data?: Array<{ sender_id: string; sender_name: string | null }>;
+      media_attachments?: Array<{
+        url: string;
+        filename: string;
+        type: string;
+        size?: number;
+      }>;
     } = {
       title,
       content,
@@ -138,11 +148,25 @@ export async function POST(request: NextRequest) {
       messageData.selected_recipients = selected_recipients;
     }
 
+    // Add media attachments if provided
+    if (media_attachments && Array.isArray(media_attachments) && media_attachments.length > 0) {
+      console.log('[Messages API] Message includes', media_attachments.length, 'media attachments');
+      messageData.media_attachments = media_attachments;
+    }
+
+    // Add selected contacts data if provided (for personalization)
+    // Temporarily disabled until database migration is complete
+    // if (selected_contacts_data && Array.isArray(selected_contacts_data)) {
+    //   console.log('[Messages API] Message includes', selected_contacts_data.length, 'contact names for personalization');
+    //   messageData.selected_contacts_data = selected_contacts_data;
+    // }
+
     if (message_tag) {
       console.log('[Messages API] Using message tag:', message_tag);
     }
 
     console.log('[Messages API] Inserting message into database...');
+    console.log('[Messages API] Message data being inserted:', JSON.stringify(messageData, null, 2));
 
     const { data: message, error } = await supabase
       .from('messages')

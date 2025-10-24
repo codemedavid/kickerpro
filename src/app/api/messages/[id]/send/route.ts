@@ -47,7 +47,8 @@ export async function POST(
       title: message.title,
       recipient_type: message.recipient_type,
       recipient_count: message.recipient_count,
-      message_tag: message.message_tag || 'none'
+      message_tag: message.message_tag || 'none',
+      selected_recipients: message.selected_recipients?.length || 0
     });
 
     // Get page details
@@ -145,6 +146,18 @@ export async function POST(
     console.log('[Send API] Starting to send', totalBatches, 'batches...');
 
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      // Check if message was cancelled before processing this batch
+      const { data: batchCheckMessage } = await supabase
+        .from('messages')
+        .select('status')
+        .eq('id', messageId)
+        .single();
+
+      if (batchCheckMessage?.status === 'cancelled') {
+        console.log(`[Send API] Message cancelled, stopping at batch ${batchIndex + 1}/${totalBatches}`);
+        break;
+      }
+
       const batch = batches[batchIndex];
       const batchNumber = batchIndex + 1;
       
@@ -164,11 +177,30 @@ export async function POST(
       let batchFailed = 0;
 
       for (const recipientId of batch) {
+        // Check if message was cancelled before sending to this recipient
+        const { data: recipientCheckMessage } = await supabase
+          .from('messages')
+          .select('status')
+          .eq('id', messageId)
+          .single();
+
+        if (recipientCheckMessage?.status === 'cancelled') {
+          console.log(`[Send API] Message cancelled, stopping within batch ${batchNumber}`);
+          break;
+        }
+
         try {
+          // Get personalized content for this recipient using existing conversation data
+          const personalizedContent = await getPersonalizedContentFromConversations(
+            message.content,
+            recipientId,
+            messageId
+          );
+
           const result = await sendFacebookMessage(
             page.facebook_page_id,
             recipientId,
-            message.content,
+            personalizedContent,
             page.access_token,
             message.message_tag || null
           );
@@ -218,6 +250,18 @@ export async function POST(
         .eq('batch_number', batchNumber);
 
       console.log(`[Send API] Batch ${batchNumber}/${totalBatches} completed. Sent: ${batchSent}, Failed: ${batchFailed}`);
+      
+      // Check if message was cancelled after completing this batch
+      const { data: postBatchCheckMessage } = await supabase
+        .from('messages')
+        .select('status')
+        .eq('id', messageId)
+        .single();
+
+      if (postBatchCheckMessage?.status === 'cancelled') {
+        console.log(`[Send API] Message cancelled after batch ${batchNumber}, stopping`);
+        break;
+      }
     }
 
     console.log('[Send API] All batches completed. Total sent:', sentCount, 'Total failed:', failedCount);
@@ -232,7 +276,7 @@ export async function POST(
     const wasCancelled = finalMessage?.status === 'cancelled';
     const finalStatus = wasCancelled 
       ? 'cancelled' 
-      : failedCount === recipients.length 
+      : sentCount === 0 
       ? 'failed' 
       : 'sent';
 
@@ -245,8 +289,10 @@ export async function POST(
         delivered_count: sentCount,
         error_message: wasCancelled 
           ? `Cancelled by user. ${sentCount} sent, ${recipients.length - sentCount - failedCount} not sent` 
+          : sentCount === 0 
+          ? `All ${failedCount} messages failed to send` 
           : failedCount > 0 
-          ? `${failedCount} messages failed to send` 
+          ? `${sentCount} sent, ${failedCount} failed` 
           : null
       })
       .eq('id', messageId);
@@ -367,4 +413,132 @@ async function sendFacebookMessage(
     };
   }
 }
+
+// Helper function to personalize message content using existing conversation data
+async function getPersonalizedContentFromConversations(
+  content: string,
+  recipientId: string,
+  messageId: string
+): Promise<string> {
+  try {
+    // Check if content has placeholders
+    if (!content.includes('{first_name}') && !content.includes('{last_name}')) {
+      return content; // No personalization needed
+    }
+
+    // Get user data from existing conversations (much faster than Facebook API)
+    const userData = await getUserDataFromConversations(recipientId, messageId);
+    
+    if (!userData) {
+      console.log('[Personalization] No conversation data found for', recipientId.substring(0, 10) + '...');
+      return content; // Return original content if user data unavailable
+    }
+
+    // Replace placeholders
+    let personalizedContent = content;
+    
+    if (userData.first_name) {
+      personalizedContent = personalizedContent.replace(/\{first_name\}/g, userData.first_name);
+    }
+    
+    if (userData.last_name) {
+      personalizedContent = personalizedContent.replace(/\{last_name\}/g, userData.last_name);
+    }
+
+    console.log('[Personalization] Personalized message for', recipientId.substring(0, 10) + '...', 'using conversation data');
+    return personalizedContent;
+  } catch (error) {
+    console.error('[Personalization] Error personalizing content:', error);
+    return content; // Return original content on error
+  }
+}
+
+// Helper function to get user data from message contact data or conversations
+async function getUserDataFromConversations(
+  recipientId: string,
+  messageId: string
+): Promise<{ first_name?: string; last_name?: string } | null> {
+  try {
+    const supabase = await createClient();
+    
+    // First, try to get contact data from the message itself (most reliable)
+    const { data: message } = await supabase
+      .from('messages')
+      .select('selected_contacts_data, page_id')
+      .eq('id', messageId)
+      .single();
+
+    if (!message) {
+      console.log('[Personalization] Message not found for ID:', messageId);
+      return null;
+    }
+
+    // Check if we have contact data in the message
+    if (message.selected_contacts_data && Array.isArray(message.selected_contacts_data)) {
+      const contactData = message.selected_contacts_data.find((contact: { sender_id: string; sender_name: string | null }) => contact.sender_id === recipientId);
+      
+      if (contactData && contactData.sender_name && contactData.sender_name !== 'Facebook User') {
+        console.log('[Personalization] Found contact data in message:', contactData.sender_name);
+        return parseName(contactData.sender_name);
+      }
+    }
+
+    // Fallback: Get from conversations table
+    console.log('[Personalization] Looking for conversation data for recipient:', recipientId.substring(0, 10) + '...', 'on page:', message.page_id);
+
+    const { data: conversation, error } = await supabase
+      .from('messenger_conversations')
+      .select('sender_name')
+      .eq('sender_id', recipientId)
+      .eq('page_id', message.page_id)
+      .single();
+
+    if (error) {
+      console.log('[Personalization] Database error:', error);
+      return null;
+    }
+
+    if (!conversation) {
+      console.log('[Personalization] No conversation found for recipient:', recipientId.substring(0, 10) + '...');
+      return null;
+    }
+
+    if (!conversation.sender_name || conversation.sender_name === 'Facebook User' || conversation.sender_name.trim() === '') {
+      console.log('[Personalization] No valid sender name found:', conversation.sender_name);
+      return null;
+    }
+
+    console.log('[Personalization] Found sender name from conversations:', conversation.sender_name);
+    return parseName(conversation.sender_name);
+  } catch (error) {
+    console.error('[Personalization] Error getting conversation data:', error);
+    return null;
+  }
+}
+
+// Helper function to parse a full name into first and last name
+function parseName(fullName: string): { first_name?: string; last_name?: string } | null {
+  const nameParts = fullName.trim().split(' ');
+  
+  if (nameParts.length === 1) {
+    // Only first name available
+    console.log('[Personalization] Parsed name - first_name:', nameParts[0]);
+    return {
+      first_name: nameParts[0],
+      last_name: undefined
+    };
+  } else if (nameParts.length >= 2) {
+    // First name and last name available
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ');
+    console.log('[Personalization] Parsed name - first_name:', firstName, 'last_name:', lastName);
+    return {
+      first_name: firstName,
+      last_name: lastName
+    };
+  }
+
+  return null;
+}
+
 
