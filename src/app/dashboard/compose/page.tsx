@@ -413,14 +413,28 @@ export default function ComposePage() {
         
         const message = await response.json();
         
-        // Update progress
+        // Update progress with correct field names
+        const sentCount = message.sent_count || 0;
+        const failedCount = message.failed_count || 0;
+        const totalCount = message.recipient_count || 0;
+        
+        console.log('[Polling] Message status update:', {
+          status: message.status,
+          sent: sentCount,
+          failed: failedCount,
+          total: totalCount
+        });
+        
         setSendingProgress(prev => ({
           ...prev,
-          sent: message.delivered_count || 0,
-          failed: (message.recipient_count || 0) - (message.delivered_count || 0),
+          sent: sentCount,
+          failed: failedCount,
+          total: totalCount,
           status: message.status === 'sending' ? 'sending' : 
                   message.status === 'cancelled' ? 'cancelled' :
-                  message.status === 'failed' ? 'error' : 'completed'
+                  message.status === 'failed' ? 'error' : 
+                  message.status === 'sent' ? 'completed' :
+                  message.status === 'partially_sent' ? 'completed' : 'completed'
         }));
 
         // Stop polling if completed, cancelled, or failed
@@ -1073,7 +1087,7 @@ export default function ComposePage() {
               {sendingProgress.status === 'sending' && 
                 "Please wait while we send your message with media attachments. This may take a few moments."}
               {sendingProgress.status === 'completed' && 
-                "Your message has been sent to all recipients."}
+                `Message sending completed! ${sendingProgress.sent} sent, ${sendingProgress.failed} failed.`}
               {sendingProgress.status === 'cancelled' && 
                 "Message sending was cancelled. Some messages may have been sent."}
               {sendingProgress.status === 'error' && 

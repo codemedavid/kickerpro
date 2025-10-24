@@ -121,7 +121,6 @@ export async function POST(
       message_id: messageId,
       batch_number: index + 1,
       total_batches: batches.length,
-      recipients: batch, // Add the recipients array
       recipient_count: batch.length,
       status: 'pending'
     }));
