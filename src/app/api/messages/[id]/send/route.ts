@@ -88,7 +88,7 @@ export async function POST(
         .eq('page_id', page.facebook_page_id)
         .eq('conversation_status', 'active');
 
-      recipients = conversations?.map(c => c.sender_id) || [];
+      recipients = conversations?.map((c: { sender_id: string }) => c.sender_id) || [];
       console.log('[Send API] Sending to', recipients.length, 'conversation recipients');
     }
 
@@ -325,7 +325,7 @@ export async function POST(
             .in('sender_id', successfulRecipients);
 
           if (conversations && conversations.length > 0) {
-            const conversationIds = conversations.map(c => c.id);
+            const conversationIds = conversations.map((c: { id: string }) => c.id);
             
             // Check if there's an auto-tag configured for this message
             const { data: autoTag } = await supabase

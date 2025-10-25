@@ -36,13 +36,13 @@ export async function GET(
     }
 
     // Calculate overall stats
-    const totalRecipients = batches?.reduce((sum, b) => sum + b.recipient_count, 0) || 0;
-    const totalSent = batches?.reduce((sum, b) => sum + (b.sent_count || 0), 0) || 0;
-    const totalFailed = batches?.reduce((sum, b) => sum + (b.failed_count || 0), 0) || 0;
-    const completedBatches = batches?.filter(b => b.status === 'completed').length || 0;
-    const failedBatches = batches?.filter(b => b.status === 'failed').length || 0;
-    const processingBatches = batches?.filter(b => b.status === 'processing').length || 0;
-    const pendingBatches = batches?.filter(b => b.status === 'pending').length || 0;
+    const totalRecipients = batches?.reduce((sum: number, b: { recipient_count: number }) => sum + b.recipient_count, 0) || 0;
+    const totalSent = batches?.reduce((sum: number, b: { sent_count?: number }) => sum + (b.sent_count || 0), 0) || 0;
+    const totalFailed = batches?.reduce((sum: number, b: { failed_count?: number }) => sum + (b.failed_count || 0), 0) || 0;
+    const completedBatches = batches?.filter((b: { status: string }) => b.status === 'completed').length || 0;
+    const failedBatches = batches?.filter((b: { status: string }) => b.status === 'failed').length || 0;
+    const processingBatches = batches?.filter((b: { status: string }) => b.status === 'processing').length || 0;
+    const pendingBatches = batches?.filter((b: { status: string }) => b.status === 'pending').length || 0;
 
     return NextResponse.json({
       success: true,

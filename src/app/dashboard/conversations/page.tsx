@@ -88,24 +88,25 @@ export default function ConversationsPage() {
 
   // Fetch conversations with server-side pagination
   const { data: conversationsData, isLoading: conversationsLoading } = useQuery<{
-    success: boolean;
     conversations: Conversation[];
     pagination: {
       page: number;
       limit: number;
       total: number;
-      totalPages: number;
-      hasMore: boolean;
+      pages: number;
+      hasNext: boolean;
+      hasPrev: boolean;
     };
   }>({
-    queryKey: ['conversations', selectedPageId, startDate, endDate, currentPage, selectedTagIds, exceptTagIds],
+    queryKey: ['conversations', selectedPageId, startDate, endDate, currentPage, selectedTagIds, exceptTagIds, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedPageId !== 'all') params.append('pageId', selectedPageId);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      if (selectedTagIds.length > 0) params.append('tagIds', selectedTagIds.join(','));
-      if (exceptTagIds.length > 0) params.append('exceptTagIds', exceptTagIds.join(','));
+      if (selectedTagIds.length > 0) params.append('include_tags', selectedTagIds.join(','));
+      if (exceptTagIds.length > 0) params.append('exclude_tags', exceptTagIds.join(','));
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
       params.append('page', String(currentPage));
       params.append('limit', String(ITEMS_PER_PAGE));
 
@@ -124,14 +125,20 @@ export default function ConversationsPage() {
     enabled: !!user?.id,
     placeholderData: (previousData) => previousData // Keep showing old data while loading new page
   });
+  
+  // Debug: Log query state
+  console.log('[Conversations] Query enabled:', !!user?.id);
+  console.log('[Conversations] Query loading:', conversationsLoading);
+  console.log('[Conversations] Query data:', conversationsData);
 
   const conversations: Conversation[] = conversationsData?.conversations || [];
   const pagination = conversationsData?.pagination || {
     page: 1,
     limit: ITEMS_PER_PAGE,
     total: 0,
-    totalPages: 1,
-    hasMore: false
+    pages: 1,
+    hasNext: false,
+    hasPrev: false
   };
 
   // Sync conversations mutation
@@ -263,17 +270,8 @@ export default function ConversationsPage() {
     });
   };
 
-  // Client-side search filter (applied after server-side pagination)
-  const displayConversations = searchQuery
-    ? conversations.filter(conv => {
-        const query = searchQuery.toLowerCase();
-        return (
-          conv.sender_name?.toLowerCase().includes(query) ||
-          conv.sender_id.includes(query) ||
-          conv.last_message?.toLowerCase().includes(query)
-        );
-      })
-    : conversations;
+  // Use conversations directly since search is now server-side
+  const displayConversations = conversations;
 
   // Check if all items on current page are selected
   const allOnPageSelected = displayConversations.length > 0 && 
@@ -954,10 +952,10 @@ export default function ConversationsPage() {
               </div>
 
               {/* Pagination */}
-              {pagination.totalPages > 1 && (
+              {pagination.pages > 1 && (
                 <div className="flex items-center justify-between mt-6 pt-6 border-t">
                   <div className="text-sm text-muted-foreground">
-                    Page {pagination.page} of {pagination.totalPages} • 
+                    Page {pagination.page} of {pagination.pages} • 
                     Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} total conversations
                   </div>
                   <div className="flex items-center gap-2">
@@ -965,20 +963,20 @@ export default function ConversationsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={pagination.page === 1 || conversationsLoading}
+                      disabled={!pagination.hasPrev || conversationsLoading}
                     >
                       <ChevronLeft className="w-4 h-4" />
                       Previous
                     </Button>
                     <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                      {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
                         let pageNum: number;
-                        if (pagination.totalPages <= 5) {
+                        if (pagination.pages <= 5) {
                           pageNum = i + 1;
                         } else if (pagination.page <= 3) {
                           pageNum = i + 1;
-                        } else if (pagination.page >= pagination.totalPages - 2) {
-                          pageNum = pagination.totalPages - 4 + i;
+                        } else if (pagination.page >= pagination.pages - 2) {
+                          pageNum = pagination.pages - 4 + i;
                         } else {
                           pageNum = pagination.page - 2 + i;
                         }
@@ -1000,8 +998,8 @@ export default function ConversationsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
-                      disabled={pagination.page === pagination.totalPages || conversationsLoading}
+                      onClick={() => setCurrentPage(p => Math.min(pagination.pages, p + 1))}
+                      disabled={!pagination.hasNext || conversationsLoading}
                     >
                       Next
                       <ChevronRight className="w-4 h-4" />
@@ -1055,7 +1053,6 @@ export default function ConversationsPage() {
             <TagSelector
               selectedTagIds={bulkTagIds}
               onTagChange={setBulkTagIds}
-              placeholder="Select tags to apply to all selected conversations..."
             />
             
             <div className="flex justify-end gap-2">

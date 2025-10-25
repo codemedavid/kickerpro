@@ -96,7 +96,7 @@ export async function POST(
         .eq('page_id', message.page_id)
         .eq('is_active', true);
       
-      recipients = contacts?.map(c => c.sender_id) || [];
+      recipients = contacts?.map((c: { sender_id: string }) => c.sender_id) || [];
       console.log('[Send Enhanced API] Sending to', recipients.length, 'active recipients');
     }
 

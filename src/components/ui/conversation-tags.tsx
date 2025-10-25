@@ -145,7 +145,6 @@ export function ConversationTags({ conversationId, className }: ConversationTags
             <TagSelector
               selectedTagIds={selectedTagIds}
               onTagChange={setSelectedTagIds}
-              placeholder="Select tags for this conversation..."
             />
             
             <div className="flex justify-end gap-2">

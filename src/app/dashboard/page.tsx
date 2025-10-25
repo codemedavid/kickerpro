@@ -51,9 +51,9 @@ export default function DashboardPage() {
       const pages = pagesRes.data || [];
 
       return {
-        messagesSent: messages.filter(m => m.status === 'sent').length,
-        delivered: messages.reduce((sum, m) => sum + (m.delivered_count || 0), 0),
-        scheduled: messages.filter(m => m.status === 'scheduled').length,
+        messagesSent: messages.filter((m: { status: string }) => m.status === 'sent').length,
+        delivered: messages.reduce((sum: number, m: { delivered_count?: number }) => sum + (m.delivered_count || 0), 0),
+        scheduled: messages.filter((m: { status: string }) => m.status === 'scheduled').length,
         connectedPages: pages.length
       };
     },

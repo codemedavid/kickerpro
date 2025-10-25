@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
-const ITEMS_PER_PAGE = 20;
-
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
@@ -16,223 +14,182 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const searchParams = request.nextUrl.searchParams;
-    const internalPageId = searchParams.get('pageId'); // This is the internal UUID
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
-    const status = searchParams.get('status') || 'active';
-    const tagIds = searchParams.get('tagIds');
-    const exceptTagIds = searchParams.get('exceptTagIds');
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || String(ITEMS_PER_PAGE));
+    const { searchParams } = new URL(request.url);
+    const includeTags = searchParams.get('include_tags')?.split(',').filter(Boolean) || [];
+    const excludeTags = searchParams.get('exclude_tags')?.split(',').filter(Boolean) || [];
+    const search = searchParams.get('search') || '';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const offset = (page - 1) * limit;
 
-    console.log('[Conversations API] Fetching conversations for user:', userId);
-    console.log('[Conversations API] Filters (raw):', { internalPageId, startDate, endDate, status, tagIds, exceptTagIds, page, limit });
-
-    const supabase = await createClient();
-    
-    // If pageId is provided, get the actual Facebook page ID
-    let facebookPageId = null;
-    if (internalPageId) {
-      const { data: pageData, error: pageError } = await supabase
-        .from('facebook_pages')
-        .select('facebook_page_id')
-        .eq('id', internalPageId)
-        .single();
-
-      if (pageError) {
-        console.error('[Conversations API] Error fetching page:', pageError);
-      } else {
-        facebookPageId = pageData?.facebook_page_id;
-        console.log('[Conversations API] Resolved page ID:', facebookPageId);
-      }
-    }
-
-    console.log('[Conversations API] Resolved filters:', { facebookPageId, startDate, endDate, status, tagIds, exceptTagIds });
-
-    // Parse tag IDs if provided
-    const tagIdArray = tagIds ? tagIds.split(',').filter(id => id.trim()) : [];
-    const exceptTagIdArray = exceptTagIds ? exceptTagIds.split(',').filter(id => id.trim()) : [];
-    
-    console.log('[Conversations API] Parsed tag arrays:', { 
-      tagIdArray, 
-      exceptTagIdArray, 
-      tagIds, 
-      exceptTagIds 
+    console.log('[Conversations API] Request params:', {
+      includeTags,
+      excludeTags,
+      search,
+      page,
+      limit,
+      offset
     });
 
-    // Get conversation IDs for tag filtering
-    let conversationIds: string[] | null = null;
-    if (tagIdArray.length > 0) {
-      console.log('[Conversations API] Filtering by tags:', tagIdArray);
-      
-      const { data: taggedConversations, error: tagError } = await supabase
+    const supabase = await createClient();
+
+    // Build the base query with proper filtering
+    let query = supabase
+      .from('messenger_conversations')
+      .select(`
+        id,
+        sender_id,
+        sender_name,
+        last_message,
+        last_message_time,
+        conversation_status,
+        message_count,
+        created_at,
+        updated_at,
+        conversation_tags(
+          id,
+          tag:tags(id, name, color)
+        )
+      `)
+      .eq('user_id', userId);
+
+    // Apply include tags filter (conversations that have ANY of these tags)
+    if (includeTags.length > 0) {
+      const { data: includedConversationIds } = await supabase
         .from('conversation_tags')
         .select('conversation_id')
-        .in('tag_id', tagIdArray);
+        .in('tag_id', includeTags);
 
-      if (tagError) {
-        console.error('[Conversations API] Error fetching tagged conversations:', tagError);
-        return NextResponse.json(
-          { error: 'Failed to filter by tags' },
-          { status: 500 }
-        );
-      }
-
-      conversationIds = taggedConversations?.map(ct => ct.conversation_id) || [];
-      
-      if (conversationIds.length === 0) {
+      if (includedConversationIds && includedConversationIds.length > 0) {
+        const conversationIds = includedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
+        query = query.in('id', conversationIds);
+      } else {
+        // No conversations have these tags, return empty result
         return NextResponse.json({
-          success: true,
           conversations: [],
           pagination: {
             page,
             limit,
             total: 0,
-            totalPages: 0,
-            hasMore: false
+            pages: 0
           }
         });
       }
     }
 
-    // Get conversation IDs to exclude (optimized query)
-    let exceptedConversationIds: string[] | null = null;
-    if (exceptTagIdArray.length > 0) {
-      console.log('[Conversations API] Excluding conversations with tags:', exceptTagIdArray);
-      
-      // Use a more efficient query with distinct to avoid duplicates
-      const { data: exceptedConversations, error: exceptError } = await supabase
+    // Apply exclude tags filter (conversations that DON'T have ANY of these tags)
+    if (excludeTags.length > 0) {
+      const { data: excludedConversationIds } = await supabase
         .from('conversation_tags')
         .select('conversation_id')
-        .in('tag_id', exceptTagIdArray);
+        .in('tag_id', excludeTags);
 
-      if (exceptError) {
-        console.error('[Conversations API] Error fetching excepted conversations:', exceptError);
-        return NextResponse.json(
-          { error: 'Failed to filter by except tags' },
-          { status: 500 }
-        );
+      if (excludedConversationIds && excludedConversationIds.length > 0) {
+        const excludedIds = excludedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
+        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
       }
-
-      exceptedConversationIds = exceptedConversations?.map(ct => ct.conversation_id) || [];
-      console.log('[Conversations API] Excluding', exceptedConversationIds.length, 'conversations with except tags');
     }
 
-    // Build base query
-    let baseQuery = supabase
-      .from('messenger_conversations')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('conversation_status', status);
-
-    console.log('[Conversations API] Base query created for user:', userId, 'status:', status);
-
-    // Apply include tag filter first
-    if (conversationIds && conversationIds.length > 0) {
-      console.log('[Conversations API] Applying include tag filter with', conversationIds.length, 'conversation IDs');
-      baseQuery = baseQuery.in('id', conversationIds);
-    } else {
-      console.log('[Conversations API] No include tag filter - loading all conversations');
-    }
-    
-    // Apply except tag filter - we'll handle this after getting the data
-    // to avoid Supabase parsing issues with large arrays
-
-    // Create count and data queries from base query
-    let countQuery = baseQuery.select('*', { count: 'exact', head: true });
-    let dataQuery = baseQuery.select('*');
-
-    // Apply filters to both queries - use facebook_page_id, not internal ID
-    if (facebookPageId) {
-      console.log('[Conversations API] Filtering by Facebook page ID:', facebookPageId);
-      countQuery = countQuery.eq('page_id', facebookPageId);
-      dataQuery = dataQuery.eq('page_id', facebookPageId);
+    // Apply search filtering
+    if (search.trim()) {
+      query = query.or(`sender_name.ilike.%${search.trim()}%,last_message.ilike.%${search.trim()}%`);
     }
 
-    if (startDate) {
-      // Convert startDate to beginning of day in ISO format
-      const startDateTime = new Date(startDate + 'T00:00:00.000Z');
-      const startDateStr = startDateTime.toISOString();
-      console.log('[Conversations API] Start date filter:', startDate, '→', startDateStr);
-      countQuery = countQuery.gte('last_message_time', startDateStr);
-      dataQuery = dataQuery.gte('last_message_time', startDateStr);
-    }
-
-    if (endDate) {
-      // Convert endDate to end of day (next day at 00:00:00)
-      const endDateTime = new Date(endDate + 'T00:00:00.000Z');
-      endDateTime.setDate(endDateTime.getDate() + 1); // Next day
-      const endDateStr = endDateTime.toISOString();
-      console.log('[Conversations API] End date filter:', endDate, '→', endDateStr);
-      countQuery = countQuery.lt('last_message_time', endDateStr);
-      dataQuery = dataQuery.lt('last_message_time', endDateStr);
-    }
-
-    // Get total count
-    const { count, error: countError } = await countQuery;
-    
-    if (countError) {
-      console.error('[Conversations API] Count error:', countError);
-    }
-
-    const totalCount = count || 0;
-    const totalPages = Math.ceil(totalCount / limit);
-
-    console.log('[Conversations API] Total count for filters:', totalCount);
-
-    // Apply pagination to data query
-    const offset = (page - 1) * limit;
-    
-    // If we have exclusions, get more data to account for filtered results
-    const queryLimit = exceptedConversationIds && exceptedConversationIds.length > 0 
-      ? limit * 3  // Get 3x the limit to account for exclusions
-      : limit;
-    
-    dataQuery = dataQuery
+    // Apply ordering and pagination
+    query = query
       .order('last_message_time', { ascending: false })
-      .range(offset, offset + queryLimit - 1);
+      .range(offset, offset + limit - 1);
 
-    const { data: conversations, error: dataError } = await dataQuery;
+    const { data: conversations, error } = await query;
 
-    if (dataError) {
-      console.error('[Conversations API] Error fetching conversations:', dataError);
+    if (error) {
+      console.error('[Conversations API] Error fetching conversations:', error);
       return NextResponse.json(
-        { error: dataError.message },
+        { error: 'Failed to fetch conversations' },
         { status: 500 }
       );
     }
 
-    console.log('[Conversations API] Found', conversations?.length || 0, 'conversations for page', page, 'of', totalPages);
+    // Get total count for pagination with same filters
+    let countQuery = supabase
+      .from('messenger_conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
 
-    // Apply exclude filter after getting the data
-    let finalConversations = conversations || [];
-    if (exceptedConversationIds && exceptedConversationIds.length > 0) {
-      console.log('[Conversations API] Filtering out excluded conversations in application layer');
-      finalConversations = finalConversations.filter(conv => 
-        !exceptedConversationIds.includes(conv.id)
-      );
-      console.log('[Conversations API] After exclude filter:', finalConversations.length, 'conversations remaining');
-      
-      // Take only the first 'limit' conversations to maintain pagination
-      finalConversations = finalConversations.slice(0, limit);
+    // Apply same include tags filter for count
+    if (includeTags.length > 0) {
+      const { data: includedConversationIds } = await supabase
+        .from('conversation_tags')
+        .select('conversation_id')
+        .in('tag_id', includeTags);
+
+      if (includedConversationIds && includedConversationIds.length > 0) {
+        const conversationIds = includedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
+        countQuery = countQuery.in('id', conversationIds);
+      } else {
+        return NextResponse.json({
+          conversations: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            pages: 0
+          }
+        });
+      }
     }
 
+    // Apply same exclude tags filter for count
+    if (excludeTags.length > 0) {
+      const { data: excludedConversationIds } = await supabase
+        .from('conversation_tags')
+        .select('conversation_id')
+        .in('tag_id', excludeTags);
+
+      if (excludedConversationIds && excludedConversationIds.length > 0) {
+        const excludedIds = excludedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
+        countQuery = countQuery.not('id', 'in', `(${excludedIds.join(',')})`);
+      }
+    }
+
+    // Apply same search filter for count
+    if (search.trim()) {
+      countQuery = countQuery.or(`sender_name.ilike.%${search.trim()}%,last_message.ilike.%${search.trim()}%`);
+    }
+
+    const { count, error: countError } = await countQuery;
+
+    if (countError) {
+      console.error('[Conversations API] Error counting conversations:', countError);
+    }
+
+    const total = count || 0;
+    const pages = Math.ceil(total / limit);
+
+    console.log('[Conversations API] Response:', {
+      conversationsCount: conversations?.length || 0,
+      total,
+      page,
+      limit,
+      pages
+    });
+
     return NextResponse.json({
-      success: true,
-      conversations: finalConversations,
+      conversations: conversations || [],
       pagination: {
         page,
         limit,
-        total: totalCount,
-        totalPages,
-        hasMore: page < totalPages
+        total,
+        pages,
+        hasNext: page < pages,
+        hasPrev: page > 1
       }
     });
+
   } catch (error) {
-    console.error('[Conversations API] Error:', error);
+    console.error('[Conversations API] Caught error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch conversations' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch conversations' },
       { status: 500 }
     );
   }

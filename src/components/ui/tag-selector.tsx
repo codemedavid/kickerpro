@@ -23,7 +23,6 @@ interface Tag {
 interface TagSelectorProps {
   selectedTagIds: string[];
   onTagChange: (tagIds: string[]) => void;
-  placeholder?: string;
   maxTags?: number;
 }
 
@@ -40,7 +39,7 @@ const PREDEFINED_COLORS = [
   { name: 'Teal', value: '#14B8A6' },
 ];
 
-export function TagSelector({ selectedTagIds, onTagChange, placeholder = "Select tags...", maxTags }: TagSelectorProps) {
+export function TagSelector({ selectedTagIds, onTagChange, maxTags }: TagSelectorProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#3B82F6');
