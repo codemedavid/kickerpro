@@ -18,6 +18,9 @@ export async function GET(request: NextRequest) {
     const includeTags = searchParams.get('include_tags')?.split(',').filter(Boolean) || [];
     const excludeTags = searchParams.get('exclude_tags')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
+    const pageId = searchParams.get('pageId');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
     const offset = (page - 1) * limit;
@@ -26,6 +29,9 @@ export async function GET(request: NextRequest) {
       includeTags,
       excludeTags,
       search,
+      pageId,
+      startDate,
+      endDate,
       page,
       limit,
       offset
@@ -44,6 +50,7 @@ export async function GET(request: NextRequest) {
         last_message_time,
         conversation_status,
         message_count,
+        page_id,
         created_at,
         updated_at,
         conversation_tags(
@@ -52,6 +59,22 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('user_id', userId);
+
+    // Apply page filter
+    if (pageId && pageId !== 'all') {
+      query = query.eq('page_id', pageId);
+    }
+
+    // Apply date range filters
+    if (startDate) {
+      query = query.gte('last_message_time', startDate);
+    }
+    if (endDate) {
+      // Add 23:59:59 to end date to include the entire day
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query = query.lte('last_message_time', endDateTime.toISOString());
+    }
 
     // Apply include tags filter (conversations that have ANY of these tags)
     if (includeTags.length > 0) {
@@ -116,6 +139,21 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId);
 
+    // Apply same page filter for count
+    if (pageId && pageId !== 'all') {
+      countQuery = countQuery.eq('page_id', pageId);
+    }
+
+    // Apply same date range filters for count
+    if (startDate) {
+      countQuery = countQuery.gte('last_message_time', startDate);
+    }
+    if (endDate) {
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      countQuery = countQuery.lte('last_message_time', endDateTime.toISOString());
+    }
+
     // Apply same include tags filter for count
     if (includeTags.length > 0) {
       const { data: includedConversationIds } = await supabase
@@ -171,7 +209,15 @@ export async function GET(request: NextRequest) {
       total,
       page,
       limit,
-      pages
+      pages,
+      filters: {
+        pageId: pageId || 'all',
+        startDate: startDate || 'none',
+        endDate: endDate || 'none',
+        includeTags: includeTags.length,
+        excludeTags: excludeTags.length,
+        search: search || 'none'
+      }
     });
 
     return NextResponse.json({

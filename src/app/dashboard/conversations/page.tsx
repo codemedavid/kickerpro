@@ -359,9 +359,14 @@ export default function ConversationsPage() {
       params.append('page', '1');
 
       const response = await fetch(`/api/conversations?${params.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversations: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
 
-      if (data.success && data.conversations) {
+      if (data.conversations) {
         const newSelection = new Set(selectedContacts);
         let added = 0;
 
@@ -461,11 +466,12 @@ export default function ConversationsPage() {
       params.append('limit', String(selectedContacts.size)); // Get all selected
       
       const response = await fetch(`/api/conversations?${params.toString()}`);
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error('Failed to fetch conversations');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversations: ${response.status} ${response.statusText}`);
       }
+      
+      const data = await response.json();
 
       // Filter to only the ones we selected
       const allConversations = data.conversations || [];
