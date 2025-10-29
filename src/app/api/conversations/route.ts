@@ -185,7 +185,7 @@ export async function GET(request: NextRequest) {
           | null;
       };
 
-      (tagsData ?? []).forEach((row) => {
+      (tagsData ?? []).forEach((row: ConversationTagRow) => {
         const castRow = row as ConversationTagRow;
         const tagRecord = Array.isArray(castRow.tag) ? castRow.tag[0] : castRow.tag;
 
