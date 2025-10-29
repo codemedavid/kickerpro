@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
@@ -28,10 +28,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { TagFilter } from '@/components/ui/tag-filter';
 import { ConversationTags } from '@/components/ui/conversation-tags';
 import { TagSelector } from '@/components/ui/tag-selector';
+import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 
 interface Conversation {
   id: string;
@@ -54,6 +55,15 @@ interface FacebookPage {
 const ITEMS_PER_PAGE = 20;
 const MAX_SELECTABLE_CONTACTS = 2000;
 
+type SyncSummary = {
+  inserted: number;
+  updated: number;
+  total: number;
+  timestamp: string;
+  pageId: string;
+  pageName: string;
+};
+
 export default function ConversationsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -74,6 +84,13 @@ export default function ConversationsPage() {
   const [exceptTagIds, setExceptTagIds] = useState<string[]>([]);
   const [bulkTagIds, setBulkTagIds] = useState<string[]>([]);
   const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
+  const [syncInProgress, setSyncInProgress] = useState(false);
+  const [syncTargetPageId, setSyncTargetPageId] = useState<string | null>(null);
+  const [syncBaselineCount, setSyncBaselineCount] = useState(0);
+  const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
+  const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
+
+  const supabase = useMemo(() => createSupabaseClient(), []);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -141,6 +158,45 @@ export default function ConversationsPage() {
     hasPrev: false
   };
 
+  useEffect(() => {
+    if (!syncInProgress || !syncTargetPageId) return;
+
+    const channel = supabase
+      .channel(`messenger-conversations-sync-${syncTargetPageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messenger_conversations',
+          filter: `page_id=eq.${syncTargetPageId}`
+        },
+        () => {
+          setRealtimeStats(prev => ({ ...prev, inserts: prev.inserts + 1 }));
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messenger_conversations',
+          filter: `page_id=eq.${syncTargetPageId}`
+        },
+        () => {
+          setRealtimeStats(prev => ({ ...prev, updates: prev.updates + 1 }));
+        }
+      )
+      .subscribe();
+
+    console.log('[Conversations] Realtime subscription started for page:', syncTargetPageId);
+
+    return () => {
+      supabase.removeChannel(channel);
+      console.log('[Conversations] Realtime subscription stopped for page:', syncTargetPageId);
+    };
+  }, [supabase, syncInProgress, syncTargetPageId]);
+
   // Sync conversations mutation
   const syncMutation = useMutation({
     mutationFn: async (pageData: { pageId: string; facebookPageId: string }) => {
@@ -157,8 +213,32 @@ export default function ConversationsPage() {
 
       return response.json();
     },
-    onSuccess: (data) => {
+    onMutate: (variables) => {
+      setSyncInProgress(true);
+      setRealtimeStats({ inserts: 0, updates: 0 });
+      setSyncBaselineCount(pagination.total);
+      setSyncTargetPageId(variables.facebookPageId);
+    },
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      const pageName =
+        pages.find(p => p.facebook_page_id === variables.facebookPageId)?.name ||
+        'Facebook Page';
+
+      setRealtimeStats({
+        inserts: data.inserted ?? 0,
+        updates: data.updated ?? 0
+      });
+
+      setLastSyncSummary({
+        inserted: data.inserted ?? 0,
+        updated: data.updated ?? 0,
+        total: data.synced ?? 0,
+        timestamp: new Date().toISOString(),
+        pageId: variables.facebookPageId,
+        pageName
+      });
+
       toast({
         title: "Sync Complete!",
         description: `Synced ${data.synced} conversation(s) from Facebook`
@@ -170,6 +250,10 @@ export default function ConversationsPage() {
         description: error instanceof Error ? error.message : "Failed to sync conversations",
         variant: "destructive"
       });
+    },
+    onSettled: () => {
+      setSyncInProgress(false);
+      setSyncTargetPageId(null);
     }
   });
 
@@ -537,10 +621,10 @@ export default function ConversationsPage() {
     }
   };
 
-  const getPageName = (pageId: string) => {
+  function getPageName(pageId: string) {
     const page = pages.find(p => p.facebook_page_id === pageId);
     return page?.name || 'Unknown Page';
-  };
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -552,8 +636,19 @@ export default function ConversationsPage() {
   };
 
   // Use total from pagination, not just current page
-  const totalCount = pagination.total;
   const activeCount = conversations.filter(c => c.conversation_status === 'active').length;
+  const isSyncAffectingSelectedPage =
+    syncInProgress &&
+    syncTargetPageId !== null &&
+    (selectedPageId === 'all' || selectedPageId === syncTargetPageId);
+
+  const syncTotalProgress = syncBaselineCount + realtimeStats.inserts;
+  const syncTargetPageName = syncTargetPageId ? getPageName(syncTargetPageId) : null;
+
+  const totalCount = isSyncAffectingSelectedPage ? syncTotalProgress : pagination.total;
+  const activeCountDisplay = isSyncAffectingSelectedPage
+    ? activeCount + realtimeStats.inserts
+    : activeCount;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -611,6 +706,41 @@ export default function ConversationsPage() {
         </div>
       </div>
 
+      {syncInProgress && syncTargetPageId && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                Syncing {syncTargetPageName || 'Facebook Page'}...
+              </p>
+              <p className="text-sm text-blue-800 mt-1">
+                Inserted {realtimeStats.inserts} • Updated {realtimeStats.updates}
+              </p>
+              <p className="text-xs text-blue-700 mt-2">
+                Starting count: {syncBaselineCount} • Total so far: {syncTotalProgress}
+              </p>
+            </div>
+            <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+          </CardContent>
+        </Card>
+      )}
+
+      {!syncInProgress && lastSyncSummary && lastSyncSummary.pageId === selectedPageId && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="p-4">
+            <p className="text-sm font-semibold text-green-900">
+              Last sync ({lastSyncSummary.pageName})
+            </p>
+            <p className="text-sm text-green-800 mt-1">
+              Inserted {lastSyncSummary.inserted} • Updated {lastSyncSummary.updated} • Total touched {lastSyncSummary.total}
+            </p>
+            <p className="text-xs text-green-700 mt-2">
+              {formatDistanceToNow(new Date(lastSyncSummary.timestamp), { addSuffix: true })}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
@@ -632,7 +762,7 @@ export default function ConversationsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Active Conversations</p>
-                <p className="text-3xl font-bold mt-2">{activeCount}</p>
+                <p className="text-3xl font-bold mt-2">{activeCountDisplay}</p>
               </div>
               <div className="bg-green-100 p-3 rounded-lg">
                 <Users className="w-6 h-6 text-green-600" />

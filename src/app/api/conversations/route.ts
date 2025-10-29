@@ -79,11 +79,7 @@ export async function GET(request: NextRequest) {
         message_count,
         page_id,
         created_at,
-        updated_at,
-        conversation_tags(
-          id,
-          tag:tags(id, name, color)
-        )
+        updated_at
       `)
       .in('page_id', accessiblePageIds);
 
@@ -158,6 +154,42 @@ export async function GET(request: NextRequest) {
         { error: 'Failed to fetch conversations' },
         { status: 500 }
       );
+    }
+
+    let conversationsWithTags = conversations || [];
+
+    if (conversations && conversations.length > 0) {
+      const conversationIds = conversations.map((c: { id: string }) => c.id);
+
+      const { data: tagsData, error: tagsError } = await supabase
+        .from('conversation_tags')
+        .select(`
+          id,
+          conversation_id,
+          tag:tags(id, name, color)
+        `)
+        .in('conversation_id', conversationIds);
+
+      if (tagsError) {
+        console.error('[Conversations API] Error fetching conversation tags:', tagsError);
+      }
+
+      const tagsByConversation = new Map<string, Array<{ id: string; tag: { id: string; name: string; color: string } }>>();
+
+      (tagsData || []).forEach((row: { id: string; conversation_id: string; tag: { id: string; name: string; color: string } }) => {
+        if (!tagsByConversation.has(row.conversation_id)) {
+          tagsByConversation.set(row.conversation_id, []);
+        }
+        tagsByConversation.get(row.conversation_id)!.push({
+          id: row.id,
+          tag: row.tag
+        });
+      });
+
+      conversationsWithTags = conversations.map((conversation: any) => ({
+        ...conversation,
+        conversation_tags: tagsByConversation.get(conversation.id) || []
+      }));
     }
 
     // Get total count for pagination with same filters
@@ -248,7 +280,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      conversations: conversations || [],
+      conversations: conversationsWithTags,
       pagination: {
         page,
         limit,

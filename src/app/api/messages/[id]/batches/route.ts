@@ -43,6 +43,13 @@ export async function GET(
     const failedBatches = batches?.filter((b: { status: string }) => b.status === 'failed').length || 0;
     const processingBatches = batches?.filter((b: { status: string }) => b.status === 'processing').length || 0;
     const pendingBatches = batches?.filter((b: { status: string }) => b.status === 'pending').length || 0;
+    const cancelledBatches = batches?.filter((b: { status: string }) => b.status === 'cancelled').length || 0;
+
+    const { data: messageRow } = await supabase
+      .from('messages')
+      .select('status')
+      .eq('id', messageId)
+      .single();
 
     return NextResponse.json({
       success: true,
@@ -53,11 +60,13 @@ export async function GET(
         processing: processingBatches,
         pending: pendingBatches,
         failed_batches: failedBatches,
+        cancelled_batches: cancelledBatches,
         total_recipients: totalRecipients,
         sent: totalSent,
         failed_messages: totalFailed,
         success_rate: totalRecipients > 0 ? Math.round((totalSent / totalRecipients) * 100) : 0
-      }
+      },
+      messageStatus: messageRow?.status || null
     });
   } catch (error) {
     console.error('[Batches API] Error:', error);
@@ -67,4 +76,3 @@ export async function GET(
     );
   }
 }
-

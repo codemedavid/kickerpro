@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Send, ArrowLeft, Calendar, Users, Eye, X, Loader2, AlertCircle, XCircle, Upload, Image, Video, File, Trash2 } from 'lucide-react';
+import { Send, ArrowLeft, Calendar, Users, Eye, X, Loader2, AlertCircle, XCircle, Upload, Image as ImageIcon, Video, File, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,11 +12,11 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
-  import { useToast } from '@/hooks/use-toast';
-  import { useAuth } from '@/hooks/use-auth';
-  import { uploadFilesDirectly } from '@/lib/supabase/client-upload';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
+import { uploadFilesDirectly } from '@/lib/supabase/client-upload';
 
 interface FacebookPage {
   id: string;
@@ -66,16 +66,29 @@ export default function ComposePage() {
     sent: number;
     failed: number;
     total: number;
+    totalBatches: number;
+    batches: Array<{
+      batchNumber: number;
+      status: string;
+      sent: number;
+      failed: number;
+      total: number;
+    }>;
     status: 'sending' | 'completed' | 'cancelled' | 'error';
+    lastUpdatedAt: string | null;
   }>({
     isOpen: false,
     messageId: null,
     sent: 0,
     failed: 0,
     total: 0,
-    status: 'sending'
+    totalBatches: 0,
+    batches: [],
+    status: 'sending',
+    lastUpdatedAt: null
   });
   const pollInterval = useRef<NodeJS.Timeout | null>(null);
+  const batchProcessingTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Load selected contacts from sessionStorage on mount
   useEffect(() => {
@@ -141,6 +154,134 @@ export default function ComposePage() {
     },
     enabled: !!user?.id
   });
+
+  const startPolling = useCallback((messageId: string) => {
+    if (pollInterval.current) {
+      clearInterval(pollInterval.current);
+    }
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/messages/${messageId}/batches`);
+        if (!response.ok) throw new Error('Failed to fetch batch status');
+
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch batch data');
+        }
+
+        const { summary } = data;
+
+        const mappedBatches = Array.isArray(data.batches)
+          ? data.batches.map((batch: { batch_number: number; status: string; sent_count?: number; failed_count?: number; recipient_count: number }) => ({
+              batchNumber: batch.batch_number,
+              status: batch.status,
+              sent: batch.sent_count || 0,
+              failed: batch.failed_count || 0,
+              total: batch.recipient_count || 0
+            }))
+          : [];
+
+        const sentCount = summary?.sent || 0;
+        const failedCount = summary?.failed_messages || 0;
+        const totalCount = summary?.total_recipients || 0;
+        const totalBatches = summary?.total_batches || mappedBatches.length || 0;
+        const pendingBatches = summary?.pending || 0;
+        const processingBatches = summary?.processing || 0;
+        const failedBatches = summary?.failed_batches || 0;
+        const cancelledBatches = summary?.cancelled_batches || 0;
+        const messageStatus = typeof data.messageStatus === 'string' ? data.messageStatus.toLowerCase() : null;
+
+        console.log('[Polling] Batch status update:', {
+          total_batches: totalBatches,
+          completed: summary?.completed || 0,
+          processing: processingBatches,
+          pending: pendingBatches,
+          failed_batches: failedBatches,
+          cancelled_batches: cancelledBatches,
+          sent: sentCount,
+          failed: failedCount,
+          total: totalCount,
+          message_status: messageStatus
+        });
+
+        const allBatchesHandled = totalBatches > 0 && pendingBatches === 0 && processingBatches === 0;
+
+        let nextStatus: 'sending' | 'completed' | 'cancelled' | 'error' = 'sending';
+        if (messageStatus === 'cancelled') {
+          nextStatus = 'cancelled';
+        } else if (messageStatus === 'failed') {
+          nextStatus = 'error';
+        } else if (messageStatus === 'sent' || messageStatus === 'partially_sent' || allBatchesHandled) {
+          nextStatus = 'completed';
+        }
+
+        setSendingProgress(prev => ({
+          ...prev,
+          sent: sentCount,
+          failed: failedCount,
+          total: totalCount,
+          totalBatches,
+          batches: mappedBatches,
+          status: nextStatus,
+          lastUpdatedAt: new Date().toISOString()
+        }));
+
+        if (nextStatus !== 'sending' && pollInterval.current) {
+          clearInterval(pollInterval.current);
+          pollInterval.current = null;
+        }
+      } catch (error) {
+        console.error('[Polling] Error:', error);
+      }
+    };
+
+    pollInterval.current = setInterval(poll, 2000);
+    poll();
+  }, []);
+
+  const triggerBatchProcessing = useCallback((messageId: string) => {
+    const processNextBatch = async () => {
+      try {
+        const response = await fetch(`/api/messages/${messageId}/batches/process`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          let errorBody: unknown = null;
+          try {
+            errorBody = await response.json();
+          } catch {
+            // Swallow JSON parse errors and log raw status
+          }
+          console.error('[Compose] Batch processing request failed', response.status, errorBody);
+          return;
+        }
+
+        const data = await response.json();
+
+        if (data.hasMore) {
+          batchProcessingTimeout.current = setTimeout(processNextBatch, 500);
+        } else {
+          batchProcessingTimeout.current = null;
+        }
+      } catch (error) {
+        console.error('[Compose] Batch processing error:', error);
+        if (batchProcessingTimeout.current) {
+          clearTimeout(batchProcessingTimeout.current);
+          batchProcessingTimeout.current = null;
+        }
+      }
+    };
+
+    if (batchProcessingTimeout.current) {
+      clearTimeout(batchProcessingTimeout.current);
+      batchProcessingTimeout.current = null;
+    }
+
+    processNextBatch();
+  }, []);
 
   const sendMutation = useMutation({
     mutationFn: async (data: {
@@ -259,7 +400,8 @@ export default function ComposePage() {
         
         return {
           ...result,
-          isImmediateSend: true
+          isImmediateSend: true,
+          useEnhanced: hasMedia
         };
       }
 
@@ -279,12 +421,18 @@ export default function ComposePage() {
           messageId: data.message.id,
           sent: 0,
           failed: 0,
-          total: data.message.recipient_count,
-          status: 'sending'
+          total: data.message.recipient_count || 0,
+          totalBatches: 0,
+          batches: [],
+          status: 'sending',
+          lastUpdatedAt: new Date().toISOString()
         });
         
         // Start polling for progress
         startPolling(data.message.id);
+        if (!data.useEnhanced) {
+          triggerBatchProcessing(data.message.id);
+        }
         
         // Clear selected contacts and media
         setSelectedContacts([]);
@@ -322,6 +470,10 @@ export default function ComposePage() {
     return () => {
       if (pollInterval.current) {
         clearInterval(pollInterval.current);
+      }
+      if (batchProcessingTimeout.current) {
+        clearTimeout(batchProcessingTimeout.current);
+        batchProcessingTimeout.current = null;
       }
     };
   }, []);
@@ -434,76 +586,13 @@ export default function ComposePage() {
 
   const getMediaIcon = (type: string) => {
     switch (type) {
-      case 'image': return <Image className="w-4 h-4" />;
+      case 'image': return <ImageIcon className="w-4 h-4" />;
       case 'video': return <Video className="w-4 h-4" />;
       case 'audio': return <File className="w-4 h-4" />;
       default: return <File className="w-4 h-4" />;
     }
   };
 
-  // Polling function to check message sending progress
-  const startPolling = (messageId: string) => {
-    if (pollInterval.current) {
-      clearInterval(pollInterval.current);
-    }
-
-    // Poll every 2 seconds
-    pollInterval.current = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/messages/${messageId}/batches`);
-        if (!response.ok) throw new Error('Failed to fetch batch status');
-        
-        const data = await response.json();
-        
-        if (!data.success) {
-          throw new Error(data.error || 'Failed to fetch batch data');
-        }
-        
-        const { summary } = data;
-        
-        // Update progress with batch data
-        const sentCount = summary.sent || 0;
-        const failedCount = summary.failed_messages || 0;
-        const totalCount = summary.total_recipients || 0;
-        
-        console.log('[Polling] Batch status update:', {
-          total_batches: summary.total_batches,
-          completed: summary.completed,
-          processing: summary.processing,
-          pending: summary.pending,
-          sent: sentCount,
-          failed: failedCount,
-          total: totalCount
-        });
-        
-        // Determine overall status
-        let status = 'sending';
-        if (summary.completed === summary.total_batches && summary.total_batches > 0) {
-          status = 'completed';
-        } else if (summary.failed_batches > 0 && summary.completed + summary.failed_batches === summary.total_batches) {
-          status = 'completed'; // Some failed but all batches processed
-        }
-        
-        setSendingProgress(prev => ({
-          ...prev,
-          sent: sentCount,
-          failed: failedCount,
-          total: totalCount,
-          status: status as 'sending' | 'completed' | 'cancelled' | 'error'
-        }));
-
-        // Stop polling if all batches are completed
-        if (status === 'completed') {
-          if (pollInterval.current) {
-            clearInterval(pollInterval.current);
-            pollInterval.current = null;
-          }
-        }
-      } catch (error) {
-        console.error('[Polling] Error:', error);
-      }
-    }, 2000);
-  };
 
   // Cancel mutation
   const cancelMutation = useMutation({
@@ -541,10 +630,14 @@ export default function ComposePage() {
     }
   };
 
-  const handleCloseProgress = () => {
+  const handleCloseProgress = useCallback(() => {
     if (pollInterval.current) {
       clearInterval(pollInterval.current);
       pollInterval.current = null;
+    }
+    if (batchProcessingTimeout.current) {
+      clearTimeout(batchProcessingTimeout.current);
+      batchProcessingTimeout.current = null;
     }
 
     setSendingProgress({
@@ -553,13 +646,89 @@ export default function ComposePage() {
       sent: 0,
       failed: 0,
       total: 0,
-      status: 'sending'
+      totalBatches: 0,
+      batches: [],
+      status: 'sending',
+      lastUpdatedAt: null
     });
 
     router.push('/dashboard');
-  };
+  }, [router]);
 
   const selectedPage = pages.find(p => p.id === formData.pageId);
+  const totalProcessed = sendingProgress.sent + sendingProgress.failed;
+  const pendingCount = Math.max(sendingProgress.total - totalProcessed, 0);
+  const progressPercent = sendingProgress.total > 0
+    ? Math.min(100, Math.round((totalProcessed / sendingProgress.total) * 100))
+    : 0;
+  const batchStatusSummary = sendingProgress.batches.reduce(
+    (acc, batch) => {
+      switch (batch.status) {
+        case 'completed':
+          acc.completed += 1;
+          break;
+        case 'failed':
+          acc.failed += 1;
+          break;
+        case 'cancelled':
+          acc.cancelled += 1;
+          break;
+        case 'processing':
+          acc.processing += 1;
+          break;
+        default:
+          acc.pending += 1;
+      }
+      return acc;
+    },
+    { completed: 0, failed: 0, cancelled: 0, processing: 0, pending: 0 }
+  );
+  const totalBatchCount = sendingProgress.totalBatches || sendingProgress.batches.length || 0;
+  const currentProcessingBatch = sendingProgress.batches.find(batch => batch.status === 'processing');
+  const lastUpdatedLabel = sendingProgress.lastUpdatedAt
+    ? new Date(sendingProgress.lastUpdatedAt).toLocaleTimeString()
+    : null;
+  const canManuallyCloseProgress = sendingProgress.status !== 'sending';
+  const batchStatusStyles: Record<
+    string,
+    { label: string; badgeClass: string; rowClassName?: string }
+  > = {
+    completed: {
+      label: 'Completed',
+      badgeClass: 'border-green-200 bg-green-50 text-green-700'
+    },
+    processing: {
+      label: 'Processing',
+      badgeClass: 'border-blue-200 bg-blue-50 text-blue-700',
+      rowClassName: 'bg-blue-50/60'
+    },
+    failed: {
+      label: 'Failed',
+      badgeClass: 'border-red-200 bg-red-50 text-red-700'
+    },
+    cancelled: {
+      label: 'Cancelled',
+      badgeClass: 'border-orange-200 bg-orange-50 text-orange-700'
+    },
+    pending: {
+      label: 'Pending',
+      badgeClass: 'border-border bg-muted text-muted-foreground'
+    }
+  };
+
+  const handleProgressDialogChange = useCallback((open: boolean) => {
+    if (open) {
+      setSendingProgress(prev => ({ ...prev, isOpen: true }));
+      return;
+    }
+
+    if (!canManuallyCloseProgress) {
+      setSendingProgress(prev => ({ ...prev, isOpen: true }));
+      return;
+    }
+
+    handleCloseProgress();
+  }, [canManuallyCloseProgress, handleCloseProgress]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1158,8 +1327,35 @@ export default function ComposePage() {
       </form>
 
       {/* Sending Progress Dialog */}
-      <Dialog open={sendingProgress.isOpen} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[500px]" onInteractOutside={(e) => e.preventDefault()}>
+      <Dialog open={sendingProgress.isOpen} onOpenChange={handleProgressDialogChange}>
+        <DialogContent
+          className="relative sm:max-w-[520px]"
+          onInteractOutside={(e) => {
+            if (!canManuallyCloseProgress) {
+              e.preventDefault();
+            }
+          }}
+        >
+          <div className="absolute right-4 top-4">
+            {canManuallyCloseProgress ? (
+              <DialogClose asChild>
+                <Button variant="ghost" size="icon" type="button" aria-label="Close progress">
+                  <X className="w-4 h-4" />
+                </Button>
+              </DialogClose>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                aria-label="Sending in progress"
+                disabled
+                className="opacity-50 cursor-not-allowed"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {sendingProgress.status === 'sending' && (
@@ -1188,33 +1384,33 @@ export default function ComposePage() {
               )}
             </DialogTitle>
             <DialogDescription>
-              {sendingProgress.status === 'sending' && 
-                "Please wait while we send your message with media attachments. This may take a few moments."}
-              {sendingProgress.status === 'completed' && 
-                `Message sending completed! ${sendingProgress.sent} sent, ${sendingProgress.failed} failed.`}
-              {sendingProgress.status === 'cancelled' && 
-                "Message sending was cancelled. Some messages may have been sent."}
-              {sendingProgress.status === 'error' && 
-                "There was an error sending your message."}
+              {sendingProgress.status === 'sending'
+                ? `Messages are sending in batches. ${totalBatchCount > 0 ? (currentProcessingBatch ? `Currently on batch ${currentProcessingBatch.batchNumber} of ${totalBatchCount}.` : `Preparing ${totalBatchCount} batches...`) : ''}`
+                : sendingProgress.status === 'completed'
+                ? `Message sending completed! ${sendingProgress.sent} sent, ${sendingProgress.failed} failed.`
+                : sendingProgress.status === 'cancelled'
+                ? 'Message sending was cancelled. Some messages may have been delivered.'
+                : 'There was an error sending your message. Please review the details below.'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Progress Bar */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Progress</span>
                 <span>
-                  {sendingProgress.sent + sendingProgress.failed} / {sendingProgress.total}
+                  {sendingProgress.total > 0
+                    ? `${totalProcessed} / ${sendingProgress.total}`
+                    : 'Preparing recipients...'}
                 </span>
               </div>
-              <Progress 
-                value={((sendingProgress.sent + sendingProgress.failed) / sendingProgress.total) * 100} 
-                className="h-2"
-              />
+              <Progress value={progressPercent} className="h-2" />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{progressPercent}% complete</span>
+                <span>{lastUpdatedLabel ? `Updated ${lastUpdatedLabel}` : 'Awaiting first update...'}</span>
+              </div>
             </div>
 
-            {/* Stats */}
             <div className="grid grid-cols-3 gap-4 py-2">
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
@@ -1230,45 +1426,99 @@ export default function ComposePage() {
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {sendingProgress.total - sendingProgress.sent - sendingProgress.failed}
+                  {pendingCount}
                 </div>
                 <div className="text-xs text-muted-foreground">Pending</div>
               </div>
             </div>
 
-            {/* Status Message */}
+            {totalBatchCount > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Batch Overview</span>
+                  <span>
+                    {batchStatusSummary.completed} completed · {batchStatusSummary.processing} in progress
+                  </span>
+                </div>
+                {sendingProgress.batches.length > 0 ? (
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border/60">
+                    {sendingProgress.batches.map((batch) => {
+                      const info = batchStatusStyles[batch.status] || batchStatusStyles.pending;
+                      return (
+                        <div
+                          key={batch.batchNumber}
+                          className={`flex items-center justify-between border-b border-border/60 px-3 py-2 text-sm last:border-b-0 ${info.rowClassName ?? ''}`}
+                        >
+                          <div>
+                            <p className="font-medium">
+                              Batch {batch.batchNumber}
+                              {batch.status === 'processing' ? ' • In progress' : ''}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {batch.sent + batch.failed} / {batch.total} processed
+                            </p>
+                          </div>
+                          <span className={`rounded-full border px-2 py-1 text-xs font-medium ${info.badgeClass}`}>
+                            {info.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-sm text-muted-foreground">
+                    Preparing batch details...
+                  </div>
+                )}
+              </div>
+            )}
+
             {sendingProgress.status === 'sending' && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
+              <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Sending messages with media in batches...</span>
+                <span>
+                  {currentProcessingBatch
+                    ? `Working through batch ${currentProcessingBatch.batchNumber} of ${totalBatchCount || '?'}.`
+                    : 'Preparing your batches...'}
+                </span>
+              </div>
+            )}
+
+            {sendingProgress.status === 'error' && (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                Please review the message in your history for more details.
+              </div>
+            )}
+
+            {sendingProgress.status === 'cancelled' && (
+              <div className="text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                Cancel request received. Any batches already submitted may still deliver.
               </div>
             )}
           </div>
 
-          {/* Actions */}
           <div className="flex justify-end gap-3">
             {sendingProgress.status === 'sending' ? (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={handleCancelSend}
-                  disabled={cancelMutation.isPending}
-                >
-                  {cancelMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Cancelling...
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Cancel Send
-                    </>
-                  )}
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                onClick={handleCancelSend}
+                disabled={cancelMutation.isPending}
+                type="button"
+              >
+                {cancelMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Cancel Send
+                  </>
+                )}
+              </Button>
             ) : (
-              <Button onClick={handleCloseProgress}>
+              <Button onClick={handleCloseProgress} type="button">
                 Close & View Dashboard
               </Button>
             )}
@@ -1278,4 +1528,3 @@ export default function ComposePage() {
     </div>
   );
 }
-

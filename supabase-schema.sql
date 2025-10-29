@@ -95,13 +95,11 @@ CREATE TABLE IF NOT EXISTS messenger_conversations (
 ALTER TABLE messenger_conversations
     DROP CONSTRAINT IF EXISTS messenger_conversations_user_id_page_id_sender_id_key;
 
-DO $$
-BEGIN
-    ALTER TABLE messenger_conversations
-        ADD CONSTRAINT messenger_conversations_page_id_sender_id_key UNIQUE (page_id, sender_id);
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE messenger_conversations
+    DROP CONSTRAINT IF EXISTS messenger_conversations_page_id_sender_id_key;
+
+ALTER TABLE messenger_conversations
+    ADD CONSTRAINT messenger_conversations_page_id_sender_id_key UNIQUE (page_id, sender_id);
 
 -- Team Members table
 CREATE TABLE IF NOT EXISTS team_members (
@@ -122,6 +120,26 @@ CREATE TABLE IF NOT EXISTS message_activity (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Tags table
+CREATE TABLE IF NOT EXISTS tags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#6366f1',
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(created_by, name)
+);
+
+-- Conversation tags junction table
+CREATE TABLE IF NOT EXISTS conversation_tags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID NOT NULL REFERENCES messenger_conversations(id) ON DELETE CASCADE,
+    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(conversation_id, tag_id)
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_facebook_pages_user_id ON facebook_pages(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_page_id ON messages(page_id);
@@ -132,6 +150,19 @@ DROP INDEX IF EXISTS idx_messenger_conversations_user_page;
 CREATE INDEX IF NOT EXISTS idx_messenger_conversations_page ON messenger_conversations(page_id);
 CREATE INDEX IF NOT EXISTS idx_messenger_conversations_sender ON messenger_conversations(sender_id);
 CREATE INDEX IF NOT EXISTS idx_message_activity_message_id ON message_activity(message_id);
+CREATE INDEX IF NOT EXISTS idx_tags_created_by ON tags(created_by);
+CREATE INDEX IF NOT EXISTS idx_conversation_tags_conversation_id ON conversation_tags(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag_id ON conversation_tags(tag_id);
+
+-- Enable realtime replication for messenger conversations
+ALTER TABLE messenger_conversations REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messenger_conversations;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -155,6 +186,9 @@ CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON messages
 CREATE TRIGGER update_messenger_conversations_updated_at BEFORE UPDATE ON messenger_conversations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_tags_updated_at BEFORE UPDATE ON tags
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE facebook_pages ENABLE ROW LEVEL SECURITY;
@@ -162,6 +196,8 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messenger_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_tags ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 
@@ -226,6 +262,85 @@ CREATE POLICY "Users can update page conversations" ON messenger_conversations
             SELECT 1 FROM facebook_pages
             WHERE facebook_pages.facebook_page_id = messenger_conversations.page_id
               AND facebook_pages.user_id::text = auth.uid()::text
+        )
+    );
+
+-- Tags: Users manage their own tag library
+CREATE POLICY "Users can read own tags" ON tags
+    FOR SELECT USING (created_by::text = auth.uid()::text);
+
+CREATE POLICY "Users can insert own tags" ON tags
+    FOR INSERT WITH CHECK (created_by::text = auth.uid()::text);
+
+CREATE POLICY "Users can update own tags" ON tags
+    FOR UPDATE USING (created_by::text = auth.uid()::text);
+
+CREATE POLICY "Users can delete own tags" ON tags
+    FOR DELETE USING (created_by::text = auth.uid()::text);
+
+-- Conversation tags: Users can manage tags for conversations on their pages
+CREATE POLICY "Users can read conversation tags" ON conversation_tags
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM messenger_conversations mc
+            JOIN facebook_pages fp ON fp.facebook_page_id = mc.page_id
+            WHERE mc.id = conversation_tags.conversation_id
+              AND fp.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Users can insert conversation tags" ON conversation_tags
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM messenger_conversations mc
+            JOIN facebook_pages fp ON fp.facebook_page_id = mc.page_id
+            WHERE mc.id = conversation_tags.conversation_id
+              AND fp.user_id::text = auth.uid()::text
+        )
+        AND EXISTS (
+            SELECT 1
+            FROM tags t
+            WHERE t.id = conversation_tags.tag_id
+              AND t.created_by::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Users can update conversation tags" ON conversation_tags
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1
+            FROM messenger_conversations mc
+            JOIN facebook_pages fp ON fp.facebook_page_id = mc.page_id
+            WHERE mc.id = conversation_tags.conversation_id
+              AND fp.user_id::text = auth.uid()::text
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM messenger_conversations mc
+            JOIN facebook_pages fp ON fp.facebook_page_id = mc.page_id
+            WHERE mc.id = conversation_tags.conversation_id
+              AND fp.user_id::text = auth.uid()::text
+        )
+        AND EXISTS (
+            SELECT 1
+            FROM tags t
+            WHERE t.id = conversation_tags.tag_id
+              AND t.created_by::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Users can delete conversation tags" ON conversation_tags
+    FOR DELETE USING (
+        EXISTS (
+            SELECT 1
+            FROM messenger_conversations mc
+            JOIN facebook_pages fp ON fp.facebook_page_id = mc.page_id
+            WHERE mc.id = conversation_tags.conversation_id
+              AND fp.user_id::text = auth.uid()::text
         )
     );
 

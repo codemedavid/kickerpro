@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Send, ArrowLeft, Calendar, Users, Eye, X, Loader2, AlertCircle, XCircle, Upload, Image, Video, File, Trash2 } from 'lucide-react';
+import { Send, ArrowLeft, Calendar, Users, Eye, X, Loader2, AlertCircle, XCircle, Upload, Image as ImageIcon, Video, File, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -467,7 +467,7 @@ export default function ComposeMediaPage() {
 
   const getMediaIcon = (type: string) => {
     switch (type) {
-      case 'image': return <Image className="w-4 h-4" />;
+      case 'image': return <ImageIcon className="w-4 h-4" />;
       case 'video': return <Video className="w-4 h-4" />;
       case 'audio': return <File className="w-4 h-4" />;
       default: return <File className="w-4 h-4" />;
