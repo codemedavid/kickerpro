@@ -48,8 +48,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Trigger standard send pipeline
+      const origin = request.nextUrl.origin;
       const sendResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/messages/${msg.id}/send`,
+        `${origin}/api/messages/${msg.id}/send`,
         {
           method: 'POST',
           headers: {

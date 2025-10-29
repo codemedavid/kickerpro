@@ -175,8 +175,9 @@ async function processBatchesAsync(messageId: string, totalBatches: number, requ
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
       console.log(`[Send API] 🚀 Processing batch ${batchIndex + 1}/${totalBatches} in background`);
       
+      const origin = request.nextUrl.origin;
       const batchResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/messages/${messageId}/batches/process`,
+        `${origin}/api/messages/${messageId}/batches/process`,
         {
           method: 'POST',
           headers: {
