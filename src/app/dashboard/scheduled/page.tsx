@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
@@ -82,6 +82,22 @@ export default function ScheduledMessagesPage() {
     enabled: !!user?.id,
     refetchInterval: 30000 // Refresh every 30 seconds
   });
+
+  // Periodically trigger scheduled dispatch for this user (runs in the background)
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    const tick = async () => {
+      try {
+        await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
+      } catch {}
+    };
+    // Kick once immediately, then every 30s (aligned with refetch)
+    tick();
+    timer = setInterval(tick, 30000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, []);
 
   // Delete mutation
   const deleteMutation = useMutation({
