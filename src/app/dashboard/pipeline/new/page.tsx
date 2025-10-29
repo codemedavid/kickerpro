@@ -231,9 +231,6 @@ export default function NewOpportunityPage() {
     }
   };
 
-  // Get selected page details
-  const selectedPage = pages.find(p => p.id === formData.pageId);
-
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
