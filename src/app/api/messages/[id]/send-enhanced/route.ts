@@ -117,6 +117,7 @@ export async function POST(
       message_id: messageId,
       batch_number: index + 1,
       total_batches: batches.length,
+      recipients: batch, // Include recipients array for batch processor compatibility
       recipient_count: batch.length,
       status: 'pending'
     }));

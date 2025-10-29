@@ -50,6 +50,39 @@ export async function POST(
       return NextResponse.json({ error: 'Facebook page not found' }, { status: 404 });
     }
 
+    // Before processing, automatically recover stuck or failed batches
+    // 1) Recover batches stuck in 'processing' beyond threshold
+    const processingStuckBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes
+    try {
+      const { error: stuckResetError } = await supabase
+        .from('message_batches')
+        .update({ status: 'pending', started_at: null, updated_at: new Date().toISOString(), error_message: 'Recovered from stuck processing state' })
+        .eq('message_id', messageId)
+        .eq('status', 'processing')
+        .lt('started_at', processingStuckBefore);
+      if (stuckResetError) {
+        console.warn('[Process Batch API] ⚠️ Failed to reset stuck processing batches:', stuckResetError);
+      }
+    } catch (e) {
+      console.warn('[Process Batch API] ⚠️ Error while checking stuck batches:', e);
+    }
+
+    // 2) Retry previously failed batches (cooldown 5 minutes)
+    const failedCooldownBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    try {
+      const { error: failedResetError } = await supabase
+        .from('message_batches')
+        .update({ status: 'pending', updated_at: new Date().toISOString(), error_message: null })
+        .eq('message_id', messageId)
+        .eq('status', 'failed')
+        .lt('updated_at', failedCooldownBefore);
+      if (failedResetError) {
+        console.warn('[Process Batch API] ⚠️ Failed to reset failed batches for retry:', failedResetError);
+      }
+    } catch (e) {
+      console.warn('[Process Batch API] ⚠️ Error while checking failed batches:', e);
+    }
+
     // Find the next batch that needs processing
     console.log('[Process Batch API] 🔍 Looking for next batch to process...');
     const { data: nextBatchOptions, error: nextBatchError } = await supabase
@@ -479,25 +512,42 @@ async function autoTagSuccessfulRecipients(
   try {
     console.log('[Process Batch API] 🏷️ Fallback batch-level tagging for', successfulRecipients.length, 'recipients');
 
-    const { data: autoTag } = await supabase
+    const { data: autoTag, error: autoTagError } = await supabase
       .from('message_auto_tags')
       .select('tag_id')
       .eq('message_id', messageId)
-      .single();
+      .maybeSingle();
+
+    if (autoTagError) {
+      console.error('[Process Batch API] 🏷️ Error checking auto-tag for fallback:', autoTagError);
+      return;
+    }
 
     if (!autoTag) {
       console.log('[Process Batch API] 🏷️ No auto-tag configured for fallback tagging');
       return;
     }
 
-    const { data: conversations } = await supabase
+    const { data: conversations, error: convError } = await supabase
       .from('messenger_conversations')
       .select('id')
       .eq('page_id', facebookPageId)
       .in('sender_id', successfulRecipients);
 
+    if (convError) {
+      console.error('[Process Batch API] 🏷️ Error finding conversations for fallback:', convError, {
+        page_id: facebookPageId,
+        recipientCount: successfulRecipients.length
+      });
+      return;
+    }
+
     if (!conversations || conversations.length === 0) {
-      console.log('[Process Batch API] 🏷️ No conversations found for fallback tagging');
+      console.log('[Process Batch API] 🏷️ No conversations found for fallback tagging:', {
+        page_id: facebookPageId,
+        recipientCount: successfulRecipients.length,
+        note: 'Some recipients may not have conversations in database'
+      });
       return;
     }
 
@@ -520,8 +570,9 @@ async function autoTagSuccessfulRecipients(
 
     console.log('[Process Batch API] 🏷️ Applying fallback tags to', untaggedConversationIds.length, 'untagged conversations');
 
+    const origin = request.nextUrl.origin;
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/conversations/auto-tag`,
+      `${origin}/api/conversations/auto-tag`,
       {
         method: 'POST',
         headers: {
@@ -559,59 +610,85 @@ async function instantTagRecipient(
   request: NextRequest
 ) {
   try {
-    console.log('[Process Batch API] 🏷️ Starting instant tagging for recipient:', recipientId.substring(0, 12) + '...');
+    console.log('[Process Batch API] 🏷️ Starting instant tagging for recipient:', recipientId.substring(0, 12) + '...', 'page_id:', facebookPageId);
 
     // Check if this message has auto-tagging enabled
-    const { data: autoTag } = await supabase
+    const { data: autoTag, error: autoTagError } = await supabase
       .from('message_auto_tags')
       .select('tag_id')
       .eq('message_id', messageId)
-      .single();
+      .maybeSingle();
+
+    if (autoTagError) {
+      console.error('[Process Batch API] 🏷️ Error checking auto-tag:', autoTagError);
+      return;
+    }
 
     if (!autoTag) {
-      console.log('[Process Batch API] 🏷️ No auto-tag configured for this message');
+      console.log('[Process Batch API] 🏷️ No auto-tag configured for message:', messageId);
       return;
     }
 
     console.log('[Process Batch API] 🏷️ Auto-tag found:', autoTag.tag_id);
 
     // Find the conversation for this recipient
-    const { data: conversation } = await supabase
+    // Use maybeSingle() to handle no results gracefully (single() throws error on no results)
+    const { data: conversation, error: convError } = await supabase
       .from('messenger_conversations')
       .select('id')
       .eq('page_id', facebookPageId)
       .eq('sender_id', recipientId)
-      .single();
+      .maybeSingle();
+
+    if (convError) {
+      console.error('[Process Batch API] 🏷️ Error finding conversation:', convError, {
+        page_id: facebookPageId,
+        sender_id: recipientId.substring(0, 12) + '...'
+      });
+      return;
+    }
 
     if (!conversation) {
-      console.log('[Process Batch API] 🏷️ No conversation found for recipient:', recipientId.substring(0, 12) + '...');
+      console.log('[Process Batch API] 🏷️ No conversation found for recipient:', {
+        recipientId: recipientId.substring(0, 12) + '...',
+        page_id: facebookPageId,
+        note: 'Conversation may not exist in database yet'
+      });
       return;
     }
 
     console.log('[Process Batch API] 🏷️ Conversation found:', conversation.id);
 
     // Check if this conversation already has this tag to avoid duplicates
-    const { data: existingTag } = await supabase
+    const { data: existingTag, error: tagCheckError } = await supabase
       .from('conversation_tags')
       .select('id')
       .eq('conversation_id', conversation.id)
       .eq('tag_id', autoTag.tag_id)
-      .single();
+      .maybeSingle();
+
+    if (tagCheckError) {
+      console.error('[Process Batch API] 🏷️ Error checking existing tag:', tagCheckError);
+      // Continue anyway - the auto-tag API will handle duplicates
+    }
 
     if (existingTag) {
-      console.log('[Process Batch API] 🏷️ Conversation already has this tag, skipping instant tagging');
+      console.log('[Process Batch API] 🏷️ Conversation already has this tag, skipping');
       return;
     }
 
     // Apply the tag instantly
+    const origin = request.nextUrl.origin;
+    const autoTagUrl = `${origin}/api/conversations/auto-tag`;
+    
     console.log('[Process Batch API] 🏷️ Making auto-tag API call:', {
       conversationId: conversation.id,
       tagId: autoTag.tag_id,
-      url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/conversations/auto-tag`
+      url: autoTagUrl
     });
 
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/conversations/auto-tag`,
+      autoTagUrl,
       {
         method: 'POST',
         headers: {
@@ -625,19 +702,32 @@ async function instantTagRecipient(
       }
     );
 
+    const responseStatus = response.status;
+    const responseOk = response.ok;
+    
     console.log('[Process Batch API] 🏷️ Auto-tag API response:', {
-      status: response.status,
-      ok: response.ok
+      status: responseStatus,
+      ok: responseOk
     });
 
-    if (response.ok) {
+    if (responseOk) {
       const responseData = await response.json();
       console.log('[Process Batch API] 🏷️ ✅ Instant tag applied successfully:', responseData);
     } else {
       const errorText = await response.text();
-      console.error('[Process Batch API] 🏷️ ❌ Instant tag failed:', errorText);
+      console.error('[Process Batch API] 🏷️ ❌ Instant tag failed:', {
+        status: responseStatus,
+        error: errorText,
+        conversationId: conversation.id,
+        tagId: autoTag.tag_id
+      });
     }
   } catch (error) {
-    console.error('[Process Batch API] 🏷️ ❌ Instant tagging error for recipient:', recipientId.substring(0, 12) + '...', error);
+    console.error('[Process Batch API] 🏷️ ❌ Instant tagging error:', {
+      recipientId: recipientId.substring(0, 12) + '...',
+      messageId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
   }
 }
