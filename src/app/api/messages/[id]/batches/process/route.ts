@@ -284,7 +284,7 @@ async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient
     .select('status, sent_count, failed_count, recipient_count')
     .eq('message_id', messageId);
 
-  const totals = batches.reduce(
+  const totals = (batches || []).reduce(
     (acc: {
       total_recipients: number;
       sent: number;
