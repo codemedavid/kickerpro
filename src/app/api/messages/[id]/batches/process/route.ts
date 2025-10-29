@@ -141,6 +141,7 @@ export async function POST(
     console.log(`[Process Batch API] Processing batch ${batch.batch_number}/${batch.total_batches} (${batch.recipient_count} recipients)`);
 
     const results: SendResult[] = [];
+    let firstErrorMessage: string | null = null;
     let batchSent = 0;
     let batchFailed = 0;
     let cancellationDetected = false;
@@ -189,6 +190,9 @@ export async function POST(
           });
         } else {
           batchFailed++;
+          if (!firstErrorMessage && result.error) {
+            firstErrorMessage = result.error;
+          }
           results.push({
             recipient_id: recipientId,
             success: false,
@@ -198,6 +202,10 @@ export async function POST(
       } catch (error) {
         batchFailed++;
         console.error('[Process Batch API] Error sending message to', recipientId, error);
+        if (!firstErrorMessage) {
+          firstErrorMessage =
+            error instanceof Error ? error.message : 'Unknown error sending message';
+        }
         results.push({
           recipient_id: recipientId,
           success: false,
@@ -233,7 +241,10 @@ export async function POST(
         sent_count: batchSent,
         failed_count: batchFailed,
         completed_at: cancellationDetected ? null : new Date().toISOString(),
-        error_message: batchFailed > 0 ? `${batchFailed} failed in this batch` : null
+        error_message:
+          batchFailed > 0
+            ? firstErrorMessage || `${batchFailed} recipient(s) failed in this batch`
+            : null
       })
       .eq('id', batch.id);
 
@@ -267,7 +278,8 @@ export async function POST(
       },
       cancelled: cancellationDetected || summary.final_status === 'cancelled',
       hasMore,
-      totals: summary
+      totals: summary,
+      failureReason: firstErrorMessage
     });
   } catch (error) {
     console.error('[Process Batch API] Error:', error);
@@ -281,7 +293,7 @@ export async function POST(
 async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient>>, messageId: string) {
   const { data: batches = [] } = await supabase
     .from('message_batches')
-    .select('status, sent_count, failed_count, recipient_count')
+    .select('status, sent_count, failed_count, recipient_count, error_message')
     .eq('message_id', messageId);
 
   const totals = (batches || []).reduce(
@@ -293,7 +305,8 @@ async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient
       failed_batches: number;
       completed_batches: number;
       cancelled_batches: number;
-    }, batch: { status: string; sent_count: number | null; failed_count: number | null; recipient_count: number | null }) => {
+      failure_messages: string[];
+    }, batch: { status: string; sent_count: number | null; failed_count: number | null; recipient_count: number | null; error_message?: string | null }) => {
       acc.total_recipients += batch.recipient_count || 0;
       acc.sent += batch.sent_count || 0;
       acc.failed += batch.failed_count || 0;
@@ -306,6 +319,9 @@ async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient
       } else if (batch.status === 'cancelled') {
         acc.cancelled_batches += 1;
       }
+      if (batch.error_message) {
+        acc.failure_messages.push(batch.error_message);
+      }
       return acc;
     },
     {
@@ -315,7 +331,8 @@ async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient
       pending_batches: 0,
       failed_batches: 0,
       completed_batches: 0,
-      cancelled_batches: 0
+      cancelled_batches: 0,
+      failure_messages: []
     }
   );
 
@@ -344,8 +361,12 @@ async function updateMessageStatus(
   const wasCancelled = messageStatus?.status === 'cancelled';
   const finalStatus = wasCancelled ? 'cancelled' : summary.final_status;
 
+  const firstFailureMessage = summary.failure_messages?.[0] ?? null;
+
   const errorMessage = wasCancelled
     ? `Cancelled by user. ${summary.sent} sent, ${summary.total_recipients - summary.sent} not sent`
+    : firstFailureMessage
+    ? firstFailureMessage
     : summary.sent === 0 && summary.failed > 0
     ? `All ${summary.failed} messages failed to send`
     : summary.failed > 0

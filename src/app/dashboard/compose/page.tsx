@@ -76,6 +76,8 @@ export default function ComposePage() {
     }>;
     status: 'sending' | 'completed' | 'cancelled' | 'error';
     lastUpdatedAt: string | null;
+    failureReasons: string[];
+    errorMessage: string | null;
   }>({
     isOpen: false,
     messageId: null,
@@ -85,7 +87,9 @@ export default function ComposePage() {
     totalBatches: 0,
     batches: [],
     status: 'sending',
-    lastUpdatedAt: null
+    lastUpdatedAt: null,
+    failureReasons: [],
+    errorMessage: null
   });
   const pollInterval = useRef<NodeJS.Timeout | null>(null);
   const batchProcessingTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -192,6 +196,10 @@ export default function ComposePage() {
         const failedBatches = summary?.failed_batches || 0;
         const cancelledBatches = summary?.cancelled_batches || 0;
         const messageStatus = typeof data.messageStatus === 'string' ? data.messageStatus.toLowerCase() : null;
+        const batchFailureMessages: string[] = Array.isArray(summary?.failure_messages)
+          ? summary.failure_messages.filter((msg: unknown): msg is string => typeof msg === 'string' && msg.trim().length > 0)
+          : [];
+        const messageError = typeof data.messageError === 'string' ? data.messageError : null;
 
         console.log('[Polling] Batch status update:', {
           total_batches: totalBatches,
@@ -217,6 +225,13 @@ export default function ComposePage() {
           nextStatus = 'completed';
         }
 
+        const resolvedFailureReasons =
+          batchFailureMessages.length > 0
+            ? batchFailureMessages
+            : messageError
+            ? [messageError]
+            : [];
+
         setSendingProgress(prev => ({
           ...prev,
           sent: sentCount,
@@ -225,7 +240,9 @@ export default function ComposePage() {
           totalBatches,
           batches: mappedBatches,
           status: nextStatus,
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: new Date().toISOString(),
+          failureReasons: resolvedFailureReasons,
+          errorMessage: messageError
         }));
 
         if (nextStatus !== 'sending' && pollInterval.current) {
@@ -425,7 +442,9 @@ export default function ComposePage() {
           totalBatches: 0,
           batches: [],
           status: 'sending',
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: new Date().toISOString(),
+          failureReasons: [],
+          errorMessage: null
         });
         
         // Start polling for progress
@@ -649,7 +668,9 @@ export default function ComposePage() {
       totalBatches: 0,
       batches: [],
       status: 'sending',
-      lastUpdatedAt: null
+      lastUpdatedAt: null,
+      failureReasons: [],
+      errorMessage: null
     });
 
     router.push('/dashboard');
