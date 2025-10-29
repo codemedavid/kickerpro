@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-provider";
 import { Toaster } from "@/components/ui/toaster";
+import { BulkSendIndicator } from "@/components/BulkSendIndicator";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,6 +23,7 @@ export default function RootLayout({
         <QueryProvider>
           {children}
           <Toaster />
+          <BulkSendIndicator />
         </QueryProvider>
       </body>
     </html>

@@ -4,10 +4,13 @@ import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Auto-tag API] 🏷️ Starting auto-tag request');
+    
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
     if (!userId) {
+      console.error('[Auto-tag API] 🏷️ ❌ Not authenticated');
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
@@ -16,6 +19,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { conversationIds, tagIds } = body;
+
+    console.log('[Auto-tag API] 🏷️ Request data:', {
+      conversationIds: conversationIds?.length || 0,
+      tagIds: tagIds?.length || 0,
+      userId: userId.substring(0, 8) + '...'
+    });
 
     if (!Array.isArray(conversationIds) || !Array.isArray(tagIds)) {
       return NextResponse.json(
@@ -126,7 +135,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Auto-tag API] Successfully tagged', conversationIds.length, 'conversations with', tagIds.length, 'tags');
+    console.log('[Auto-tag API] 🏷️ ✅ Successfully tagged', conversationIds.length, 'conversations with', tagIds.length, 'tags');
 
     return NextResponse.json({
       success: true,

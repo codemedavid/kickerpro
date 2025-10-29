@@ -77,6 +77,18 @@ CREATE TABLE IF NOT EXISTS message_batches (
 CREATE INDEX IF NOT EXISTS idx_message_batches_message_id ON message_batches(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_batches_status ON message_batches(status);
 
+-- Message Auto Tags table (for automatic tagging when messages are sent)
+CREATE TABLE IF NOT EXISTS message_auto_tags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_auto_tags_message_id ON message_auto_tags(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_auto_tags_tag_id ON message_auto_tags(tag_id);
+
 -- Messenger Conversations table
 CREATE TABLE IF NOT EXISTS messenger_conversations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

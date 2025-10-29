@@ -140,46 +140,13 @@ export async function POST(
       console.log('[Send API] Created', totalBatches, 'batch records in database');
     }
 
-    // Start processing batches immediately
-    console.log('[Send API] Starting batch processing...');
-    try {
-      // Process batches sequentially
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        console.log(`[Send API] Processing batch ${batchIndex + 1}/${totalBatches}`);
-        
-        const batchResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/messages/${messageId}/batches/process`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Cookie: request.headers.get('cookie') || ''
-            }
-          }
-        );
-
-        if (!batchResponse.ok) {
-          const errorData = await batchResponse.json();
-          console.error(`[Send API] Batch ${batchIndex + 1} processing failed:`, errorData);
-          break;
-        }
-
-        const batchResult = await batchResponse.json();
-        console.log(`[Send API] Batch ${batchIndex + 1} completed:`, {
-          sent: batchResult.batch?.sent || 0,
-          failed: batchResult.batch?.failed || 0,
-          status: batchResult.batch?.status || 'unknown'
-        });
-
-        // If no more batches to process, break
-        if (!batchResult.hasMore) {
-          console.log('[Send API] All batches processed');
-          break;
-        }
-      }
-    } catch (error) {
-      console.error('[Send API] Error during batch processing:', error);
-    }
+    // Start processing batches asynchronously (don't wait for completion)
+    console.log('[Send API] Starting asynchronous batch processing...');
+    
+    // Process batches in the background without blocking the response
+    processBatchesAsync(messageId, totalBatches, request).catch(error => {
+      console.error('[Send API] Background batch processing error:', error);
+    });
 
     return NextResponse.json({
       success: true,
@@ -187,7 +154,8 @@ export async function POST(
       batches: {
         total: totalBatches,
         size: BATCH_SIZE
-      }
+      },
+      message: 'Batches created and processing started'
     });
   } catch (error) {
     console.error('[Send API] Error:', error);
@@ -195,5 +163,54 @@ export async function POST(
       { error: error instanceof Error ? error.message : 'Failed to send message' },
       { status: 500 }
     );
+  }
+}
+
+// 🚀 ASYNCHRONOUS BATCH PROCESSING FUNCTION
+async function processBatchesAsync(messageId: string, totalBatches: number, request: NextRequest) {
+  console.log('[Send API] 🚀 Starting background batch processing for', totalBatches, 'batches');
+  
+  try {
+    // Process batches sequentially with delays to allow polling to catch up
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      console.log(`[Send API] 🚀 Processing batch ${batchIndex + 1}/${totalBatches} in background`);
+      
+      const batchResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/messages/${messageId}/batches/process`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: request.headers.get('cookie') || ''
+          }
+        }
+      );
+
+      if (!batchResponse.ok) {
+        const errorData = await batchResponse.json();
+        console.error(`[Send API] 🚀 Batch ${batchIndex + 1} processing failed:`, errorData);
+        break;
+      }
+
+      const batchResult = await batchResponse.json();
+      console.log(`[Send API] 🚀 Batch ${batchIndex + 1} completed:`, {
+        sent: batchResult.batch?.sent || 0,
+        failed: batchResult.batch?.failed || 0,
+        status: batchResult.batch?.status || 'unknown'
+      });
+
+      // If no more batches to process, break
+      if (!batchResult.hasMore) {
+        console.log('[Send API] 🚀 All batches processed in background');
+        break;
+      }
+
+      // Add a small delay to allow frontend polling to catch up
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    console.log('[Send API] 🚀 Background batch processing completed');
+  } catch (error) {
+    console.error('[Send API] 🚀 Background batch processing error:', error);
   }
 }
