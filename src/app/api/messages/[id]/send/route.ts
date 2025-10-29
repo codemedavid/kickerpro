@@ -132,8 +132,53 @@ export async function POST(
 
     if (batchInsertError) {
       console.error('[Send API] Error creating batches:', batchInsertError);
+      return NextResponse.json(
+        { error: 'Failed to create batch records' },
+        { status: 500 }
+      );
     } else {
       console.log('[Send API] Created', totalBatches, 'batch records in database');
+    }
+
+    // Start processing batches immediately
+    console.log('[Send API] Starting batch processing...');
+    try {
+      // Process batches sequentially
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        console.log(`[Send API] Processing batch ${batchIndex + 1}/${totalBatches}`);
+        
+        const batchResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/messages/${messageId}/batches/process`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: request.headers.get('cookie') || ''
+            }
+          }
+        );
+
+        if (!batchResponse.ok) {
+          const errorData = await batchResponse.json();
+          console.error(`[Send API] Batch ${batchIndex + 1} processing failed:`, errorData);
+          break;
+        }
+
+        const batchResult = await batchResponse.json();
+        console.log(`[Send API] Batch ${batchIndex + 1} completed:`, {
+          sent: batchResult.batch?.sent || 0,
+          failed: batchResult.batch?.failed || 0,
+          status: batchResult.batch?.status || 'unknown'
+        });
+
+        // If no more batches to process, break
+        if (!batchResult.hasMore) {
+          console.log('[Send API] All batches processed');
+          break;
+        }
+      }
+    } catch (error) {
+      console.error('[Send API] Error during batch processing:', error);
     }
 
     return NextResponse.json({

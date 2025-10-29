@@ -215,11 +215,12 @@ export default function ComposePage() {
         });
 
         const allBatchesHandled = totalBatches > 0 && pendingBatches === 0 && processingBatches === 0;
+        const hasFailures = (summary?.failed_messages || 0) > 0 || batchFailureMessages.length > 0;
 
         let nextStatus: 'sending' | 'completed' | 'cancelled' | 'error' = 'sending';
         if (messageStatus === 'cancelled') {
           nextStatus = 'cancelled';
-        } else if (messageStatus === 'failed') {
+        } else if (messageStatus === 'failed' || hasFailures) {
           nextStatus = 'error';
         } else if (messageStatus === 'sent' || messageStatus === 'partially_sent' || allBatchesHandled) {
           nextStatus = 'completed';
@@ -241,8 +242,13 @@ export default function ComposePage() {
           batches: mappedBatches,
           status: nextStatus,
           lastUpdatedAt: new Date().toISOString(),
-          failureReasons: resolvedFailureReasons,
-          errorMessage: messageError
+          failureReasons:
+            resolvedFailureReasons.length > 0
+              ? resolvedFailureReasons
+              : nextStatus === 'error'
+              ? prev.failureReasons
+              : [],
+          errorMessage: messageError || (nextStatus === 'error' ? prev.errorMessage : null)
         }));
 
         if (nextStatus !== 'sending' && pollInterval.current) {
@@ -1350,7 +1356,7 @@ export default function ComposePage() {
       {/* Sending Progress Dialog */}
       <Dialog open={sendingProgress.isOpen} onOpenChange={handleProgressDialogChange}>
         <DialogContent
-          className="relative sm:max-w-[520px]"
+          className="relative sm:max-w-[520px] max-h-[80vh] overflow-y-auto sm:top-1/2 sm:-translate-y-1/2"
           onInteractOutside={(e) => {
             if (!canManuallyCloseProgress) {
               e.preventDefault();
@@ -1491,6 +1497,17 @@ export default function ComposePage() {
                     Preparing batch details...
                   </div>
                 )}
+              </div>
+            )}
+
+            {sendingProgress.failureReasons.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">We hit an issue while sending:</p>
+                <ul className="list-disc space-y-1 pl-5">
+                  {sendingProgress.failureReasons.map((reason, index) => (
+                    <li key={index}>{reason}</li>
+                  ))}
+                </ul>
               </div>
             )}
 

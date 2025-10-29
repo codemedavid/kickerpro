@@ -51,6 +51,7 @@ export async function POST(
     }
 
     // Find the next batch that needs processing
+    console.log('[Process Batch API] 🔍 Looking for next batch to process...');
     const { data: nextBatchOptions, error: nextBatchError } = await supabase
       .from('message_batches')
       .select('*')
@@ -60,11 +61,17 @@ export async function POST(
       .limit(1);
 
     if (nextBatchError) {
-      console.error('[Process Batch API] Failed to fetch next batch:', nextBatchError);
+      console.error('[Process Batch API] ❌ Failed to fetch next batch:', nextBatchError);
       return NextResponse.json({ error: 'Failed to fetch pending batches' }, { status: 500 });
     }
 
+    console.log('[Process Batch API] 📊 Batch query result:', {
+      found_batches: nextBatchOptions?.length || 0,
+      message_id: messageId
+    });
+
     if (!nextBatchOptions || nextBatchOptions.length === 0) {
+      console.log('[Process Batch API] ✅ No more batches to process, finalizing...');
       // Nothing left to process – finalize message status if needed
       const summary = await summarizeBatches(supabase, messageId);
       await updateMessageStatus(supabase, messageId, message.title, summary);
@@ -167,6 +174,15 @@ export async function POST(
       }
 
       try {
+        console.log(
+          '[Process Batch API] Attempting send',
+          JSON.stringify({
+            message_id: messageId,
+            batch_number: batch.batch_number,
+            recipient: recipientId.substring(0, 12) + '...'
+          })
+        );
+
         const personalizedContent = await getPersonalizedContentFromConversations(
           message.content,
           recipientId,
@@ -183,6 +199,15 @@ export async function POST(
 
         if (result.success) {
           batchSent++;
+          console.log(
+            '[Process Batch API] Send succeeded',
+            JSON.stringify({
+              message_id: messageId,
+              batch_number: batch.batch_number,
+              recipient: recipientId.substring(0, 12) + '...',
+              facebook_message_id: result.message_id || 'n/a'
+            })
+          );
           results.push({
             recipient_id: recipientId,
             success: true,
@@ -193,6 +218,15 @@ export async function POST(
           if (!firstErrorMessage && result.error) {
             firstErrorMessage = result.error;
           }
+          console.warn(
+            '[Process Batch API] Send failed',
+            JSON.stringify({
+              message_id: messageId,
+              batch_number: batch.batch_number,
+              recipient: recipientId.substring(0, 12) + '...',
+              error: result.error || 'Unknown error'
+            })
+          );
           results.push({
             recipient_id: recipientId,
             success: false,
@@ -206,6 +240,15 @@ export async function POST(
           firstErrorMessage =
             error instanceof Error ? error.message : 'Unknown error sending message';
         }
+        console.error(
+          '[Process Batch API] Send threw error',
+          JSON.stringify({
+            message_id: messageId,
+            batch_number: batch.batch_number,
+            recipient: recipientId.substring(0, 12) + '...',
+            error: error instanceof Error ? error.message : String(error)
+          })
+        );
         results.push({
           recipient_id: recipientId,
           success: false,

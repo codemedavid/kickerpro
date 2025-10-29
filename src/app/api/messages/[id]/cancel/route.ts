@@ -51,9 +51,10 @@ export async function POST(
       .from('messages')
       .update({ 
         status: 'cancelled',
-        cancelled_at: new Date().toISOString()
+        error_message: `Cancelled at ${new Date().toISOString()}`
       })
-      .eq('id', messageId);
+      .eq('id', messageId)
+      .eq('created_by', userId);
 
     if (updateError) {
       console.error('[Cancel API] Failed to update message status:', updateError);
@@ -61,6 +62,21 @@ export async function POST(
         { error: 'Failed to cancel message' },
         { status: 500 }
       );
+    }
+
+    // Mark any remaining batches as cancelled
+    const { error: batchUpdateError } = await supabase
+      .from('message_batches')
+      .update({
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        error_message: 'Cancelled before processing'
+      })
+      .eq('message_id', messageId)
+      .in('status', ['pending', 'processing']);
+
+    if (batchUpdateError) {
+      console.error('[Cancel API] Failed to update batch statuses:', batchUpdateError);
     }
 
     // Log the cancellation

@@ -15,10 +15,6 @@ interface MediaAttachment {
   is_reusable?: boolean;
 }
 
-interface MessageContent {
-  text?: string;
-  attachment?: MediaAttachment;
-}
 
 export async function POST(
   request: NextRequest,
