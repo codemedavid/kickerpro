@@ -208,7 +208,7 @@ export async function GET(request: NextRequest) {
         tagsByConversation.set(castRow.conversation_id, tagsForConversation);
       });
 
-      conversationsWithTags = conversations.map((conversation: any) => ({
+      conversationsWithTags = conversations.map((conversation: { id: string }) => ({
         ...conversation,
         conversation_tags: tagsByConversation.get(conversation.id) || []
       }));

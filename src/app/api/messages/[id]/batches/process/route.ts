@@ -67,7 +67,7 @@ export async function POST(
     if (!nextBatchOptions || nextBatchOptions.length === 0) {
       // Nothing left to process – finalize message status if needed
       const summary = await summarizeBatches(supabase, messageId);
-      await updateMessageStatus(supabase, messageId, message.title, summary, request);
+      await updateMessageStatus(supabase, messageId, message.title, summary);
 
       return NextResponse.json({
         success: true,
@@ -121,7 +121,7 @@ export async function POST(
         .eq('id', batch.id);
 
       const summary = await summarizeBatches(supabase, messageId);
-      await updateMessageStatus(supabase, messageId, message.title, summary, request);
+      await updateMessageStatus(supabase, messageId, message.title, summary);
 
       return NextResponse.json({
         success: true,
@@ -285,7 +285,15 @@ async function summarizeBatches(supabase: Awaited<ReturnType<typeof createClient
     .eq('message_id', messageId);
 
   const totals = batches.reduce(
-    (acc, batch) => {
+    (acc: {
+      total_recipients: number;
+      sent: number;
+      failed: number;
+      pending_batches: number;
+      failed_batches: number;
+      completed_batches: number;
+      cancelled_batches: number;
+    }, batch: { status: string; sent_count: number | null; failed_count: number | null; recipient_count: number | null }) => {
       acc.total_recipients += batch.recipient_count || 0;
       acc.sent += batch.sent_count || 0;
       acc.failed += batch.failed_count || 0;
@@ -412,7 +420,7 @@ async function autoTagSuccessfulRecipients(
       return;
     }
 
-    const conversationIds = conversations.map(conversation => conversation.id);
+    const conversationIds = conversations.map((conversation: { id: string }) => conversation.id);
 
     const response = await fetch(
       `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/conversations/auto-tag`,
