@@ -176,14 +176,36 @@ export async function GET(request: NextRequest) {
 
       const tagsByConversation = new Map<string, Array<{ id: string; tag: { id: string; name: string; color: string } }>>();
 
-      (tagsData || []).forEach((row: { id: string; conversation_id: string; tag: { id: string; name: string; color: string } }) => {
-        if (!tagsByConversation.has(row.conversation_id)) {
-          tagsByConversation.set(row.conversation_id, []);
+      type ConversationTagRow = {
+        id: string;
+        conversation_id: string;
+        tag:
+          | { id: string; name: string; color: string }
+          | Array<{ id: string; name: string; color: string }>
+          | null;
+      };
+
+      (tagsData ?? []).forEach((row) => {
+        const castRow = row as ConversationTagRow;
+        const tagRecord = Array.isArray(castRow.tag) ? castRow.tag[0] : castRow.tag;
+
+        if (!tagRecord) {
+          return;
         }
-        tagsByConversation.get(row.conversation_id)!.push({
-          id: row.id,
-          tag: row.tag
+
+        const tagsForConversation =
+          tagsByConversation.get(castRow.conversation_id) ?? [];
+
+        tagsForConversation.push({
+          id: castRow.id,
+          tag: {
+            id: tagRecord.id,
+            name: tagRecord.name,
+            color: tagRecord.color
+          }
         });
+
+        tagsByConversation.set(castRow.conversation_id, tagsForConversation);
       });
 
       conversationsWithTags = conversations.map((conversation: any) => ({
