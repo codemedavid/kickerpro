@@ -79,21 +79,30 @@ async function handleMessage(event: WebhookEvent) {
     }
 
     // Save or update conversation
-    const { error } = await supabase
-      .from('messenger_conversations')
-      .upsert({
-        user_id: page.user_id,
-        page_id: recipientId,
-        sender_id: senderId,
-        sender_name: 'Facebook User', // We'd need to fetch this from Facebook Graph API
-        last_message: messageText,
-        last_message_time: new Date(timestamp).toISOString(),
-        conversation_status: 'active',
-        message_count: 1
-      }, {
-        onConflict: 'user_id,page_id,sender_id',
-        ignoreDuplicates: false
-      });
+    const payload = {
+      user_id: page.user_id,
+      page_id: recipientId,
+      sender_id: senderId,
+      sender_name: 'Facebook User', // We'd need to fetch this from Facebook Graph API
+      last_message: messageText,
+      last_message_time: new Date(timestamp).toISOString(),
+      conversation_status: 'active'
+    };
+
+    const attemptUpsert = async (onConflict: string) =>
+      supabase
+        .from('messenger_conversations')
+        .upsert(payload, {
+          onConflict,
+          ignoreDuplicates: false
+        });
+
+    let { error } = await attemptUpsert('page_id,sender_id');
+
+    if (error && error.code === '42P10') {
+      console.warn('[Webhook] Missing unique constraint for new key. Retrying with legacy key.');
+      ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
+    }
 
     if (error) {
       console.error('Error saving conversation:', error);
@@ -104,4 +113,3 @@ async function handleMessage(event: WebhookEvent) {
     console.error('Error handling message:', error);
   }
 }
-

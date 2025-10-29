@@ -101,7 +101,7 @@ export default function ConversationsPage() {
     queryKey: ['conversations', selectedPageId, startDate, endDate, currentPage, selectedTagIds, exceptTagIds, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedPageId !== 'all') params.append('pageId', selectedPageId);
+      if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (selectedTagIds.length > 0) params.append('include_tags', selectedTagIds.join(','));
@@ -111,7 +111,7 @@ export default function ConversationsPage() {
       params.append('limit', String(ITEMS_PER_PAGE));
 
       console.log('[Conversations] Fetching page', currentPage, 'with filters:', {
-        pageId: selectedPageId,
+        facebookPageId: selectedPageId,
         startDate: startDate || 'none',
         endDate: endDate || 'none',
         tagIds: selectedTagIds.length > 0 ? selectedTagIds : 'none',
@@ -183,7 +183,7 @@ export default function ConversationsPage() {
       return;
     }
 
-    const page = pages.find(p => p.id === selectedPageId);
+    const page = pages.find(p => p.facebook_page_id === selectedPageId);
     if (!page) return;
 
     syncMutation.mutate({
@@ -352,7 +352,7 @@ export default function ConversationsPage() {
     try {
       // Fetch ALL matching conversations (not paginated)
       const params = new URLSearchParams();
-      if (selectedPageId !== 'all') params.append('pageId', selectedPageId);
+      if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       params.append('limit', String(totalToSelect)); // Get all up to limit
@@ -434,9 +434,14 @@ export default function ConversationsPage() {
       };
     });
 
+    const selectedPage = selectedPageId === 'all'
+      ? null
+      : pages.find(p => p.facebook_page_id === selectedPageId);
+
     sessionStorage.setItem('opportunityContacts', JSON.stringify({
       contacts: contactsData,
-      pageId: selectedPageId !== 'all' ? selectedPageId : null
+      pageId: selectedPage?.id ?? null,
+      facebookPageId: selectedPage?.facebook_page_id ?? null
     }));
 
     toast({
@@ -459,10 +464,14 @@ export default function ConversationsPage() {
     }
 
     try {
+      const selectedPage = selectedPageId === 'all'
+        ? null
+        : pages.find(p => p.facebook_page_id === selectedPageId);
+
       // Fetch ALL selected conversations (not just current page)
       // We need to get the full conversation data for all selected sender_ids
       const params = new URLSearchParams();
-      if (selectedPageId !== 'all') params.append('pageId', selectedPageId);
+      if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
       params.append('limit', String(selectedContacts.size)); // Get all selected
       
       const response = await fetch(`/api/conversations?${params.toString()}`);
@@ -496,7 +505,8 @@ export default function ConversationsPage() {
 
         sessionStorage.setItem('selectedContacts', JSON.stringify({
           contacts: minimalContacts,
-          pageId: selectedPageId !== 'all' ? selectedPageId : null
+          pageId: selectedPage?.id ?? null,
+          facebookPageId: selectedPage?.facebook_page_id ?? null
         }));
       } else {
         // We have all the data we need
@@ -505,7 +515,8 @@ export default function ConversationsPage() {
             sender_id: c.sender_id,
             sender_name: c.sender_name
           })),
-          pageId: selectedPageId !== 'all' ? selectedPageId : null
+          pageId: selectedPage?.id ?? null,
+          facebookPageId: selectedPage?.facebook_page_id ?? null
         }));
       }
 
@@ -719,7 +730,7 @@ export default function ConversationsPage() {
                 <SelectContent>
                   <SelectItem value="all">All Pages</SelectItem>
                   {pages.map((page) => (
-                    <SelectItem key={page.id} value={page.id}>
+                    <SelectItem key={page.id} value={page.facebook_page_id}>
                       {page.name}
                     </SelectItem>
                   ))}

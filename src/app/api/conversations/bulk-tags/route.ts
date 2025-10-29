@@ -40,12 +40,34 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Verify all conversations belong to user
+    const { data: accessiblePages, error: pagesError } = await supabase
+      .from('facebook_pages')
+      .select('facebook_page_id')
+      .eq('user_id', userId);
+
+    if (pagesError) {
+      console.error('[Bulk Tags API] Error fetching accessible pages:', pagesError);
+      return NextResponse.json(
+        { error: 'Failed to verify page access' },
+        { status: 500 }
+      );
+    }
+
+    const accessiblePageIds = (accessiblePages || []).map((p: { facebook_page_id: string }) => p.facebook_page_id);
+
+    if (accessiblePageIds.length === 0) {
+      return NextResponse.json(
+        { error: 'No accessible pages found for user' },
+        { status: 403 }
+      );
+    }
+
+    // Verify all conversations belong to accessible pages
     const { data: conversations, error: convError } = await supabase
       .from('messenger_conversations')
-      .select('id')
-      .eq('user_id', userId)
-      .in('id', conversationIds);
+      .select('id, page_id')
+      .in('id', conversationIds)
+      .in('page_id', accessiblePageIds);
 
     if (convError) {
       console.error('[Bulk Tags API] Error verifying conversations:', convError);
@@ -55,7 +77,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (conversations.length !== conversationIds.length) {
+    if ((conversations || []).length !== conversationIds.length) {
       return NextResponse.json(
         { error: 'Some conversations not found or not accessible' },
         { status: 404 }

@@ -89,9 +89,19 @@ CREATE TABLE IF NOT EXISTS messenger_conversations (
     conversation_status TEXT NOT NULL DEFAULT 'active' CHECK (conversation_status IN ('active', 'inactive', 'blocked')),
     message_count INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, page_id, sender_id)
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE messenger_conversations
+    DROP CONSTRAINT IF EXISTS messenger_conversations_user_id_page_id_sender_id_key;
+
+DO $$
+BEGIN
+    ALTER TABLE messenger_conversations
+        ADD CONSTRAINT messenger_conversations_page_id_sender_id_key UNIQUE (page_id, sender_id);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Team Members table
 CREATE TABLE IF NOT EXISTS team_members (
@@ -118,7 +128,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_page_id ON messages(page_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_by ON messages(created_by);
 CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_messages_scheduled_for ON messages(scheduled_for);
-CREATE INDEX IF NOT EXISTS idx_messenger_conversations_user_page ON messenger_conversations(user_id, page_id);
+DROP INDEX IF EXISTS idx_messenger_conversations_user_page;
+CREATE INDEX IF NOT EXISTS idx_messenger_conversations_page ON messenger_conversations(page_id);
 CREATE INDEX IF NOT EXISTS idx_messenger_conversations_sender ON messenger_conversations(sender_id);
 CREATE INDEX IF NOT EXISTS idx_message_activity_message_id ON message_activity(message_id);
 
@@ -191,14 +202,32 @@ CREATE POLICY "Users can delete own messages" ON messages
     FOR DELETE USING (auth.uid()::text = created_by::text);
 
 -- Messenger Conversations: Users can read conversations for their pages
-CREATE POLICY "Users can read own conversations" ON messenger_conversations
-    FOR SELECT USING (auth.uid()::text = user_id::text);
+CREATE POLICY "Users can read page conversations" ON messenger_conversations
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM facebook_pages
+            WHERE facebook_pages.facebook_page_id = messenger_conversations.page_id
+              AND facebook_pages.user_id::text = auth.uid()::text
+        )
+    );
 
-CREATE POLICY "Users can insert own conversations" ON messenger_conversations
-    FOR INSERT WITH CHECK (auth.uid()::text = user_id::text);
+CREATE POLICY "Users can insert page conversations" ON messenger_conversations
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM facebook_pages
+            WHERE facebook_pages.facebook_page_id = page_id
+              AND facebook_pages.user_id::text = auth.uid()::text
+        )
+    );
 
-CREATE POLICY "Users can update own conversations" ON messenger_conversations
-    FOR UPDATE USING (auth.uid()::text = user_id::text);
+CREATE POLICY "Users can update page conversations" ON messenger_conversations
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM facebook_pages
+            WHERE facebook_pages.facebook_page_id = messenger_conversations.page_id
+              AND facebook_pages.user_id::text = auth.uid()::text
+        )
+    );
 
 -- Team Members: Can read team data
 CREATE POLICY "Users can read team members" ON team_members
@@ -234,4 +263,3 @@ BEGIN
     RETURN QUERY SELECT * FROM users WHERE facebook_id = fb_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-

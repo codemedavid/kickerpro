@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
@@ -123,17 +123,22 @@ export default function NewOpportunityPage() {
     enabled: !!user?.id
   });
 
+  const selectedPage = useMemo(
+    () => pages.find(p => p.id === formData.pageId) || null,
+    [pages, formData.pageId]
+  );
+
   // Fetch conversations for selected page
   const { data: conversations = [] } = useQuery<Conversation[]>({
-    queryKey: ['conversations-for-opportunity', formData.pageId],
+    queryKey: ['conversations-for-opportunity', selectedPage?.facebook_page_id],
     queryFn: async () => {
-      if (!formData.pageId) return [];
-      const response = await fetch(`/api/conversations?pageId=${formData.pageId}&limit=100`);
+      if (!selectedPage?.facebook_page_id) return [];
+      const response = await fetch(`/api/conversations?facebookPageId=${selectedPage.facebook_page_id}&limit=100`);
       if (!response.ok) throw new Error('Failed to fetch conversations');
       const data = await response.json();
       return data.conversations || [];
     },
-    enabled: !!formData.pageId
+    enabled: !!selectedPage?.facebook_page_id
   });
 
   // Create opportunity mutation
@@ -566,4 +571,3 @@ export default function NewOpportunityPage() {
     </div>
   );
 }
-

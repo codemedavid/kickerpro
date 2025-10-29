@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const includeTags = searchParams.get('include_tags')?.split(',').filter(Boolean) || [];
     const excludeTags = searchParams.get('exclude_tags')?.split(',').filter(Boolean) || [];
     const search = searchParams.get('search') || '';
-    const pageId = searchParams.get('pageId');
+    const facebookPageId = searchParams.get('facebookPageId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       includeTags,
       excludeTags,
       search,
-      pageId,
+      facebookPageId,
       startDate,
       endDate,
       page,
@@ -38,6 +38,33 @@ export async function GET(request: NextRequest) {
     });
 
     const supabase = await createClient();
+
+    const { data: accessiblePages, error: pagesError } = await supabase
+      .from('facebook_pages')
+      .select('facebook_page_id')
+      .eq('user_id', userId);
+
+    if (pagesError) {
+      console.error('[Conversations API] Error fetching accessible pages:', pagesError);
+      return NextResponse.json(
+        { error: 'Failed to fetch accessible pages' },
+        { status: 500 }
+      );
+    }
+
+    const accessiblePageIds = (accessiblePages || []).map((p: { facebook_page_id: string }) => p.facebook_page_id);
+
+    if (accessiblePageIds.length === 0) {
+      return NextResponse.json({
+        conversations: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0
+        }
+      });
+    }
 
     // Build the base query with proper filtering
     let query = supabase
@@ -58,11 +85,11 @@ export async function GET(request: NextRequest) {
           tag:tags(id, name, color)
         )
       `)
-      .eq('user_id', userId);
+      .in('page_id', accessiblePageIds);
 
     // Apply page filter
-    if (pageId && pageId !== 'all') {
-      query = query.eq('page_id', pageId);
+    if (facebookPageId && facebookPageId !== 'all') {
+      query = query.eq('page_id', facebookPageId);
     }
 
     // Apply date range filters
@@ -137,11 +164,11 @@ export async function GET(request: NextRequest) {
     let countQuery = supabase
       .from('messenger_conversations')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId);
+      .in('page_id', accessiblePageIds);
 
     // Apply same page filter for count
-    if (pageId && pageId !== 'all') {
-      countQuery = countQuery.eq('page_id', pageId);
+    if (facebookPageId && facebookPageId !== 'all') {
+      countQuery = countQuery.eq('page_id', facebookPageId);
     }
 
     // Apply same date range filters for count
@@ -211,7 +238,7 @@ export async function GET(request: NextRequest) {
       limit,
       pages,
       filters: {
-        pageId: pageId || 'all',
+        facebookPageId: facebookPageId || 'all',
         startDate: startDate || 'none',
         endDate: endDate || 'none',
         includeTags: includeTags.length,

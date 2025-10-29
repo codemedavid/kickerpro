@@ -75,13 +75,35 @@ export async function POST(
 
     const supabase = await createClient();
 
-    // Verify conversation belongs to user
+    const { data: accessiblePages, error: pagesError } = await supabase
+      .from('facebook_pages')
+      .select('facebook_page_id')
+      .eq('user_id', userId);
+
+    if (pagesError) {
+      console.error('[Conversation Tags API] Error fetching accessible pages:', pagesError);
+      return NextResponse.json(
+        { error: 'Failed to verify page access' },
+        { status: 500 }
+      );
+    }
+
+    const accessiblePageIds = (accessiblePages || []).map((p: { facebook_page_id: string }) => p.facebook_page_id);
+
+    if (accessiblePageIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Conversation not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify conversation belongs to accessible pages
     const { data: conversation, error: convError } = await supabase
       .from('messenger_conversations')
       .select('id')
       .eq('id', conversationId)
-      .eq('user_id', userId)
-      .single();
+      .in('page_id', accessiblePageIds)
+      .maybeSingle();
 
     if (convError || !conversation) {
       return NextResponse.json(
