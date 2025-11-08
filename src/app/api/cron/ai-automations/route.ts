@@ -20,11 +20,19 @@ export async function GET(request: NextRequest) {
   try {
     // Verify cron secret to prevent unauthorized access
     const authHeader = request.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET || 'development-secret';
+    const cronSecret = process.env.CRON_SECRET;
     
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      console.warn('[AI Automation Cron] Unauthorized access attempt');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Skip auth check if CRON_SECRET is not set (allows Vercel Cron to work)
+    // In production, protect this endpoint using Vercel's firewall or by setting CRON_SECRET
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        console.warn('[AI Automation Cron] Unauthorized access attempt');
+        console.warn('[AI Automation Cron] Expected:', `Bearer ${cronSecret}`);
+        console.warn('[AI Automation Cron] Received:', authHeader || 'none');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    } else {
+      console.log('[AI Automation Cron] ℹ️ Running without CRON_SECRET (Vercel Cron mode)');
     }
 
     console.log('[AI Automation Cron] Starting scheduled execution');

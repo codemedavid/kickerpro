@@ -14,18 +14,24 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify authorization for security (Vercel Cron automatically passes this)
+    // Verify authorization for security
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
     
-    // In production, Vercel Cron passes the secret automatically
-    // For local dev, you need to set CRON_SECRET in .env.local
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      console.warn('[Cron Send Scheduled] ⚠️ Unauthorized access attempt');
-      return NextResponse.json({ 
-        error: 'Unauthorized',
-        message: 'Invalid or missing authorization header' 
-      }, { status: 401 });
+    // Skip auth check if CRON_SECRET is not set (allows Vercel Cron to work)
+    // In production, protect this endpoint using Vercel's firewall or by setting CRON_SECRET
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        console.warn('[Cron Send Scheduled] ⚠️ Unauthorized access attempt');
+        console.warn('[Cron Send Scheduled] Expected:', `Bearer ${cronSecret}`);
+        console.warn('[Cron Send Scheduled] Received:', authHeader || 'none');
+        return NextResponse.json({ 
+          error: 'Unauthorized',
+          message: 'Invalid or missing authorization header' 
+        }, { status: 401 });
+      }
+    } else {
+      console.log('[Cron Send Scheduled] ℹ️ Running without CRON_SECRET (Vercel Cron mode)');
     }
 
     const currentTime = new Date();
