@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Send, ArrowLeft, Calendar, Users, Eye, X, Upload, Image as ImageIcon, Video, File, Trash2 } from 'lucide-react';
+import { Send, ArrowLeft, Calendar, Users, Eye, X, Upload, Image as ImageIcon, Video, File, Trash2, RefreshCw, Tag as TagIcon, Sparkles, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 // Progress modal removed
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
@@ -59,6 +61,24 @@ export default function ComposePage() {
   const [mediaAttachments, setMediaAttachments] = useState<MediaAttachment[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Auto-fetch and tag filtering state for scheduled messages
+  const [autoFetchEnabled, setAutoFetchEnabled] = useState(false);
+  const [includeTagIds, setIncludeTagIds] = useState<string[]>([]);
+  const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]);
+  
+  // AI generation state
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiGeneratedMessages, setAiGeneratedMessages] = useState<Array<{
+    conversationId: string;
+    message: string;
+    participantName: string;
+    senderId: string;
+  }>>([]);
+  const [currentAiMessageIndex, setCurrentAiMessageIndex] = useState(0);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [customAiInstructions, setCustomAiInstructions] = useState('');
+  const [useAiBulkSend, setUseAiBulkSend] = useState(false);
   // Progress modal and local polling removed; handled globally
 
   // Load selected contacts from sessionStorage on mount
@@ -69,6 +89,7 @@ export default function ComposePage() {
         const data = JSON.parse(stored) as { 
           contacts: Array<{ sender_id: string; sender_name: string | null }>;
           pageId?: string;
+          prefilledMessage?: string;
         };
         
         if (data.contacts && data.contacts.length > 0) {
@@ -79,14 +100,26 @@ export default function ComposePage() {
           
           // Auto-select the page if specified
           if (data.pageId) {
-            setFormData(prev => ({ ...prev, pageId: data.pageId as string, recipientType: 'selected' }));
+            setFormData(prev => ({ 
+              ...prev, 
+              pageId: data.pageId as string, 
+              recipientType: 'selected',
+              // Pre-fill message if provided (from AI generation)
+              content: data.prefilledMessage || prev.content
+            }));
           } else {
-            setFormData(prev => ({ ...prev, recipientType: 'selected' }));
+            setFormData(prev => ({ 
+              ...prev, 
+              recipientType: 'selected',
+              content: data.prefilledMessage || prev.content
+            }));
           }
           
           toast({
-            title: "Contacts Loaded",
-            description: `${data.contacts.length} contact(s) ready to message`
+            title: data.prefilledMessage ? "AI Message Loaded" : "Contacts Loaded",
+            description: data.prefilledMessage 
+              ? "AI-generated message has been pre-filled"
+              : `${data.contacts.length} contact(s) ready to message`
           });
           
           // Clear from sessionStorage
@@ -230,20 +263,42 @@ export default function ComposePage() {
       if (data.status === 'sent') {
         console.log('[Compose] Triggering immediate send in background...');
         
-        // Use enhanced API if media attachments are present
+        // Use direct send (bypasses batch system which is unreliable)
         const hasMedia = data.media_attachments && data.media_attachments.length > 0;
         const apiEndpoint = hasMedia 
           ? `/api/messages/${result.message.id}/send-enhanced`
-          : `/api/messages/${result.message.id}/send`;
+          : `/api/messages/${result.message.id}/send-now`; // USE DIRECT SEND
         
-        console.log('[Compose] Using API endpoint:', apiEndpoint);
+        console.log('[Compose] Using API endpoint:', apiEndpoint, '(direct send, bypasses batches)');
         
-        // Start sending in background (non-blocking)
-        fetch(apiEndpoint, {
-          method: 'POST'
-        }).catch(error => {
-          console.error('[Compose] Background send error:', error);
-        });
+        // Start sending immediately and wait for completion
+        // Changed from fire-and-forget to synchronous for reliability
+        setTimeout(async () => {
+          try {
+            console.log('[Compose] Triggering send...');
+            const sendResponse = await fetch(apiEndpoint, {
+              method: 'GET'
+            });
+            
+            console.log('[Compose] Send response status:', sendResponse.status);
+            
+            if (sendResponse.ok) {
+              const sendResult = await sendResponse.json();
+              console.log('[Compose] ✅ Send successful:', sendResult);
+              console.log('[Compose] ✅ Sent:', sendResult.stats?.sent || 0, 'Failed:', sendResult.stats?.failed || 0);
+              
+              // Refresh to show updated delivery count
+              setTimeout(() => {
+                queryClient.invalidateQueries({ queryKey: ['messages'] });
+              }, 1000);
+            } else {
+              const errorText = await sendResponse.text();
+              console.error('[Compose] ❌ Send failed:', sendResponse.status, errorText);
+            }
+          } catch (error) {
+            console.error('[Compose] ❌ Send error:', error);
+          }
+        }, 500); // 500ms delay to ensure message is saved first
         
         return {
           ...result,
@@ -482,12 +537,148 @@ export default function ComposePage() {
         //   sender_id: c.sender_id,
         //   sender_name: c.sender_name
         // }))
+      }),
+      // Add auto-fetch and tag filtering for scheduled messages
+      ...(formData.messageType === 'scheduled' && {
+        auto_fetch_enabled: autoFetchEnabled,
+        auto_fetch_page_id: autoFetchEnabled ? formData.pageId : null,
+        include_tag_ids: includeTagIds.length > 0 ? includeTagIds : [],
+        exclude_tag_ids: excludeTagIds.length > 0 ? excludeTagIds : []
+      }),
+      // Add AI personalized messages if bulk send with AI is enabled
+      ...(useAiBulkSend && aiGeneratedMessages.length > 0 && {
+        use_ai_bulk_send: true,
+        ai_messages_map: aiGeneratedMessages.reduce((acc, msg) => {
+          acc[msg.senderId] = msg.message;
+          return acc;
+        }, {} as Record<string, string>)
       })
     };
 
     console.log('[Compose] Sending message data:', messageData);
+    console.log('[Compose] AI Bulk Send:', useAiBulkSend, 'AI Messages:', aiGeneratedMessages.length);
 
     sendMutation.mutate(messageData);
+  };
+
+  // AI Generation Handler
+  const handleGenerateAIMessages = async () => {
+    if (selectedContacts.length === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select contacts first to generate AI messages",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!formData.pageId) {
+      toast({
+        title: "Select a Page",
+        description: "Please select a Facebook page first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsAiGenerating(true);
+    setShowAiPanel(true);
+    
+    try {
+      // Get sender IDs (PSIDs) from selected contacts
+      const senderIds = selectedContacts.map(c => c.sender_id);
+
+      toast({
+        title: "Generating AI Messages",
+        description: `Processing ${selectedContacts.length} conversations...`,
+        duration: 3000
+      });
+
+      // Call AI generation API with sender IDs (PSIDs)
+      const response = await fetch('/api/ai/generate-follow-ups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderIds,
+          pageId: formData.pageId,
+          customInstructions: customAiInstructions.trim() || undefined
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate AI messages');
+      }
+
+      const data = await response.json();
+
+      // Map messages with sender_id for bulk sending
+      const messagesWithSenderId = (data.messages || []).map((msg: {
+        conversationId: string;
+        message: string;
+        participantName: string;
+      }) => {
+        // When using senderIds, conversationId will be the sender_id
+        // Otherwise, find the sender_id from our contacts
+        const contact = selectedContacts.find(c => c.sender_id === msg.conversationId);
+        
+        return {
+          ...msg,
+          senderId: contact?.sender_id || msg.conversationId
+        };
+      });
+
+      setAiGeneratedMessages(messagesWithSenderId);
+      setCurrentAiMessageIndex(0);
+
+      if (messagesWithSenderId.length > 0) {
+        // Pre-fill with first message
+        setFormData(prev => ({
+          ...prev,
+          content: messagesWithSenderId[0].message
+        }));
+
+        toast({
+          title: "AI Messages Generated!",
+          description: `${data.generated} personalized messages ready. ${selectedContacts.length > 1 ? 'Enable "AI Bulk Send" to send unique messages to each person.' : ''}`,
+          duration: 5000
+        });
+      }
+
+    } catch (error) {
+      console.error('[Compose] Error generating AI messages:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate AI messages",
+        variant: "destructive"
+      });
+      setShowAiPanel(false);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // Navigate AI messages
+  const handlePreviousAiMessage = () => {
+    if (currentAiMessageIndex > 0) {
+      const newIndex = currentAiMessageIndex - 1;
+      setCurrentAiMessageIndex(newIndex);
+      setFormData(prev => ({
+        ...prev,
+        content: aiGeneratedMessages[newIndex].message
+      }));
+    }
+  };
+
+  const handleNextAiMessage = () => {
+    if (currentAiMessageIndex < aiGeneratedMessages.length - 1) {
+      const newIndex = currentAiMessageIndex + 1;
+      setCurrentAiMessageIndex(newIndex);
+      setFormData(prev => ({
+        ...prev,
+        content: aiGeneratedMessages[newIndex].message
+      }));
+    }
   };
 
   const getPreviewMessage = () => {
@@ -559,7 +750,136 @@ export default function ComposePage() {
             </div>
 
             <div>
-              <Label htmlFor="content">Message Content *</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="content">Message Content *</Label>
+              </div>
+
+              {/* Custom AI Instructions */}
+              {selectedContacts.length > 0 && formData.pageId && (
+                <Card className="mb-4 border-purple-200 bg-purple-50">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="w-4 h-4 text-purple-600" />
+                      <Label htmlFor="ai-instructions" className="font-semibold text-purple-900">
+                        AI Message Instructions (Optional)
+                      </Label>
+                    </div>
+                    <Textarea
+                      id="ai-instructions"
+                      value={customAiInstructions}
+                      onChange={(e) => setCustomAiInstructions(e.target.value)}
+                      placeholder="Example: Focus on our summer sale, mention 20% discount, keep it casual and friendly..."
+                      className="min-h-20 bg-white"
+                    />
+                    <p className="text-xs text-purple-700 mt-2 mb-3">
+                      Tell the AI how you want the messages composed. More specific = better results.
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={handleGenerateAIMessages}
+                      disabled={isAiGenerating}
+                      className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    >
+                      {isAiGenerating ? (
+                        <>
+                          <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                          Generating {selectedContacts.length} Personalized Messages...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 w-4 h-4" />
+                          Generate {selectedContacts.length} AI Messages
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* AI Messages Panel */}
+              {showAiPanel && aiGeneratedMessages.length > 0 && (
+                <Card className="mb-4 border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-purple-600" />
+                        <span className="font-semibold text-purple-900">
+                          AI Generated Message {currentAiMessageIndex + 1} of {aiGeneratedMessages.length}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handlePreviousAiMessage}
+                          disabled={currentAiMessageIndex === 0}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleNextAiMessage}
+                          disabled={currentAiMessageIndex === aiGeneratedMessages.length - 1}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowAiPanel(false)}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {/* AI Bulk Send Option */}
+                    {selectedContacts.length > 1 && (
+                      <div className="mb-3 p-3 bg-white rounded-lg border border-purple-200">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <Sparkles className="w-4 h-4 text-purple-600" />
+                              <Label htmlFor="ai-bulk-send" className="font-semibold text-purple-900">
+                                AI Personalized Bulk Send
+                              </Label>
+                            </div>
+                            <p className="text-xs text-purple-700">
+                              Send unique AI-generated message to each person (not the same message to all)
+                            </p>
+                          </div>
+                          <Switch
+                            id="ai-bulk-send"
+                            checked={useAiBulkSend}
+                            onCheckedChange={setUseAiBulkSend}
+                          />
+                        </div>
+                        {useAiBulkSend && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                            ✓ Each of the {aiGeneratedMessages.length} contacts will receive their own personalized AI message
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="bg-white rounded-lg p-3 border border-purple-200">
+                      <p className="text-sm font-medium text-purple-900 mb-1">
+                        {useAiBulkSend ? 'Preview Message' : 'For'}: {aiGeneratedMessages[currentAiMessageIndex]?.participantName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {useAiBulkSend 
+                          ? '💡 Each person will get their unique message. Use arrows to preview all messages.'
+                          : '💡 This message is pre-filled below. Edit as needed, then use arrows to view others.'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Textarea
                 id="content"
                 value={formData.content}
@@ -797,27 +1117,163 @@ export default function ComposePage() {
             </RadioGroup>
 
             {formData.messageType === 'scheduled' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={formData.scheduleDate}
-                    onChange={(e) => setFormData({ ...formData, scheduleDate: e.target.value })}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="mt-2"
-                  />
+              <div className="space-y-4 mt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="date">Date</Label>
+                    <Input
+                      id="date"
+                      type="date"
+                      value={formData.scheduleDate}
+                      onChange={(e) => setFormData({ ...formData, scheduleDate: e.target.value })}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="mt-2"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="time">Time</Label>
+                    <Input
+                      id="time"
+                      type="time"
+                      value={formData.scheduleTime}
+                      onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
+                      className="mt-2"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="time">Time</Label>
-                  <Input
-                    id="time"
-                    type="time"
-                    value={formData.scheduleTime}
-                    onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
-                    className="mt-2"
-                  />
+
+                {/* Auto-Fetch Feature */}
+                <div className="border rounded-lg p-4 bg-blue-50 border-blue-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-blue-600" />
+                      <Label htmlFor="auto-fetch" className="font-semibold text-blue-900">
+                        Auto-Fetch New Conversations
+                      </Label>
+                    </div>
+                    <Switch
+                      id="auto-fetch"
+                      checked={autoFetchEnabled}
+                      onCheckedChange={setAutoFetchEnabled}
+                    />
+                  </div>
+                  <p className="text-xs text-blue-700 mb-3">
+                    Automatically sync and fetch new conversations from the selected page before sending
+                  </p>
+
+                  {autoFetchEnabled && (
+                    <div className="space-y-3 pt-3 border-t border-blue-300">
+                      {/* Include Tags */}
+                      <div>
+                        <Label className="text-sm font-medium text-blue-900 flex items-center gap-2 mb-2">
+                          <TagIcon className="w-3 h-3" />
+                          Include Conversations With Tags
+                        </Label>
+                        <p className="text-xs text-blue-600 mb-2">
+                          Only include conversations that have at least one of these tags
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {tags && tags.length > 0 ? (
+                            tags.map((tag: { id: string; name: string; color: string }) => (
+                              <div
+                                key={tag.id}
+                                className="flex items-center gap-1"
+                              >
+                                <Checkbox
+                                  id={`include-${tag.id}`}
+                                  checked={includeTagIds.includes(tag.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setIncludeTagIds([...includeTagIds, tag.id]);
+                                      // Remove from exclude if it's there
+                                      setExcludeTagIds(excludeTagIds.filter(id => id !== tag.id));
+                                    } else {
+                                      setIncludeTagIds(includeTagIds.filter(id => id !== tag.id));
+                                    }
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`include-${tag.id}`}
+                                  className="cursor-pointer"
+                                >
+                                  <Badge style={{ backgroundColor: tag.color, color: 'white' }}>
+                                    {tag.name}
+                                  </Badge>
+                                </Label>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-blue-600">No tags created yet</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Exclude Tags */}
+                      <div>
+                        <Label className="text-sm font-medium text-blue-900 flex items-center gap-2 mb-2">
+                          <TagIcon className="w-3 h-3" />
+                          Exclude Conversations With Tags
+                        </Label>
+                        <p className="text-xs text-blue-600 mb-2">
+                          Exclude conversations that have any of these tags
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {tags && tags.length > 0 ? (
+                            tags.map((tag: { id: string; name: string; color: string }) => (
+                              <div
+                                key={tag.id}
+                                className="flex items-center gap-1"
+                              >
+                                <Checkbox
+                                  id={`exclude-${tag.id}`}
+                                  checked={excludeTagIds.includes(tag.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setExcludeTagIds([...excludeTagIds, tag.id]);
+                                      // Remove from include if it's there
+                                      setIncludeTagIds(includeTagIds.filter(id => id !== tag.id));
+                                    } else {
+                                      setExcludeTagIds(excludeTagIds.filter(id => id !== tag.id));
+                                    }
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`exclude-${tag.id}`}
+                                  className="cursor-pointer"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    style={{ borderColor: tag.color, color: tag.color }}
+                                  >
+                                    {tag.name}
+                                  </Badge>
+                                </Label>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-blue-600">No tags created yet</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      {(includeTagIds.length > 0 || excludeTagIds.length > 0) && (
+                        <div className="bg-white rounded p-2 text-xs">
+                          <p className="font-semibold text-blue-900 mb-1">Filter Summary:</p>
+                          {includeTagIds.length > 0 && (
+                            <p className="text-green-700">
+                              ✓ Include {includeTagIds.length} tag{includeTagIds.length !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                          {excludeTagIds.length > 0 && (
+                            <p className="text-red-700">
+                              ✗ Exclude {excludeTagIds.length} tag{excludeTagIds.length !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

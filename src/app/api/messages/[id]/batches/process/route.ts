@@ -216,16 +216,25 @@ export async function POST(
           })
         );
 
-        const personalizedContent = await getPersonalizedContentFromConversations(
-          message.content,
-          recipientId,
-          messageId
-        );
+        // Check if AI bulk send is enabled and use personalized message
+        let contentToSend: string;
+        if (message.use_ai_bulk_send && message.ai_messages_map && message.ai_messages_map[recipientId]) {
+          // Use AI-generated personalized message for this recipient
+          contentToSend = message.ai_messages_map[recipientId];
+          console.log(`[Process Batch API] Using AI-generated message for ${recipientId.substring(0, 12)}...`);
+        } else {
+          // Use standard personalization
+          contentToSend = await getPersonalizedContentFromConversations(
+            message.content,
+            recipientId,
+            messageId
+          );
+        }
 
         const result = await sendFacebookMessage(
           page.facebook_page_id,
           recipientId,
-          personalizedContent,
+          contentToSend,
           page.access_token,
           message.message_tag || null
         );

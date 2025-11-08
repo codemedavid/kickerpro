@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   TrendingUp,
-  Tag as TagIcon
+  Tag as TagIcon,
+  Plus,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,7 +55,7 @@ interface FacebookPage {
 }
 
 const ITEMS_PER_PAGE = 20;
-const MAX_SELECTABLE_CONTACTS = 2000;
+// No limit on bulk selection - unlimited contacts can be selected
 
 type SyncSummary = {
   inserted: number;
@@ -83,6 +85,7 @@ export default function ConversationsPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [exceptTagIds, setExceptTagIds] = useState<string[]>([]);
   const [bulkTagIds, setBulkTagIds] = useState<string[]>([]);
+  const [bulkTagAction, setBulkTagAction] = useState<'assign' | 'remove' | 'replace'>('assign');
   const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [syncTargetPageId, setSyncTargetPageId] = useState<string | null>(null);
@@ -200,18 +203,66 @@ export default function ConversationsPage() {
   // Sync conversations mutation
   const syncMutation = useMutation({
     mutationFn: async (pageData: { pageId: string; facebookPageId: string }) => {
-      const response = await fetch('/api/conversations/sync', {
+      // Use streaming endpoint for real-time progress
+      const response = await fetch('/api/conversations/sync-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pageData)
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to sync conversations');
+        throw new Error('Failed to start sync');
       }
 
-      return response.json();
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let finalResult = { inserted: 0, updated: 0 };
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = JSON.parse(line.slice(6));
+                
+                // Update real-time stats
+                if (data.inserted !== undefined) {
+                  setRealtimeStats({ 
+                    inserts: data.inserted, 
+                    updates: data.updated 
+                  });
+                }
+
+                // Show progress toasts
+                if (data.status === 'batch_complete') {
+                  toast({
+                    title: `Batch ${data.batch} Complete`,
+                    description: `Synced ${data.total} conversations so far...`,
+                  });
+                }
+
+                // Final result
+                if (data.status === 'complete') {
+                  finalResult = {
+                    inserted: data.inserted,
+                    updated: data.updated
+                  };
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
+      return finalResult;
     },
     onMutate: (variables) => {
       setSyncInProgress(true);
@@ -286,45 +337,57 @@ export default function ConversationsPage() {
     setCurrentPage(1);
   };
 
-  // Bulk tag assignment mutation
+  // Bulk tag operations mutation
   const bulkTagMutation = useMutation({
-    mutationFn: async ({ conversationIds, tagIds }: { conversationIds: string[]; tagIds: string[] }) => {
-      const promises = conversationIds.map(conversationId => 
-        fetch(`/api/conversations/${conversationId}/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tagIds })
-        })
-      );
+    mutationFn: async ({ 
+      conversationIds, 
+      tagIds, 
+      action 
+    }: { 
+      conversationIds: string[]; 
+      tagIds: string[]; 
+      action: 'assign' | 'remove' | 'replace' 
+    }) => {
+      const response = await fetch('/api/conversations/bulk-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationIds, tagIds, action })
+      });
       
-      const responses = await Promise.all(promises);
-      const failed = responses.filter(r => !r.ok);
-      
-      if (failed.length > 0) {
-        throw new Error(`Failed to update ${failed.length} conversations`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to process bulk tag operation');
       }
       
-      return { success: true, updated: conversationIds.length };
+      return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      
+      const actionText = {
+        assign: 'added to',
+        remove: 'removed from',
+        replace: 'replaced in'
+      }[variables.action];
+      
       toast({
-        title: "Tags Applied",
-        description: `Successfully tagged ${data.updated} conversations`
+        title: "Tags Updated",
+        description: `Successfully ${actionText} ${variables.conversationIds.length} conversation${variables.conversationIds.length !== 1 ? 's' : ''}`
       });
       setBulkTagIds([]);
+      setBulkTagAction('assign');
       setIsBulkTagDialogOpen(false);
     },
     onError: (error) => {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to apply tags",
+        description: error instanceof Error ? error.message : "Failed to update tags",
         variant: "destructive"
       });
     }
   });
 
-  const handleBulkTagAssignment = () => {
+  const handleBulkTagAssignment = async () => {
     if (selectedContacts.size === 0) {
       toast({
         title: "No Contacts Selected",
@@ -334,7 +397,7 @@ export default function ConversationsPage() {
       return;
     }
 
-    if (bulkTagIds.length === 0) {
+    if (bulkTagIds.length === 0 && bulkTagAction !== 'remove') {
       toast({
         title: "No Tags Selected",
         description: "Please select tags to apply",
@@ -343,16 +406,54 @@ export default function ConversationsPage() {
       return;
     }
 
-    // Get conversation IDs for selected contacts
-    const conversationIds = conversations
-      .filter(conv => selectedContacts.has(conv.sender_id))
-      .map(conv => conv.id);
+    // For "remove all tags", confirm the action
+    if (bulkTagAction === 'remove' && bulkTagIds.length === 0) {
+      if (!confirm(`Are you sure you want to remove ALL tags from ${selectedContacts.size} conversation${selectedContacts.size !== 1 ? 's' : ''}?`)) {
+        return;
+      }
+    }
 
-    bulkTagMutation.mutate({
-      conversationIds,
-      tagIds: bulkTagIds
-    });
+    try {
+      // Fetch ALL selected conversations to get their IDs
+      const params = new URLSearchParams();
+      if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
+      params.append('limit', String(selectedContacts.size));
+      
+      const response = await fetch(`/api/conversations?${params.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch conversations');
+      
+      const data = await response.json();
+      const allConversations = data.conversations || [];
+      
+      // Filter to only selected ones
+      const conversationIds = allConversations
+        .filter((c: Conversation) => selectedContacts.has(c.sender_id))
+        .map((c: Conversation) => c.id);
+
+      if (conversationIds.length === 0) {
+        toast({
+          title: "No Conversations Found",
+          description: "Could not find the selected conversations",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      bulkTagMutation.mutate({
+        conversationIds,
+        tagIds: bulkTagIds,
+        action: bulkTagAction
+      });
+    } catch (error) {
+      console.error('[Conversations] Error fetching conversation IDs:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch conversation data. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
+
 
   // Use conversations directly since search is now server-side
   const displayConversations = conversations;
@@ -369,33 +470,9 @@ export default function ConversationsPage() {
       displayConversations.forEach(conv => newSelection.delete(conv.sender_id));
       setSelectedContacts(newSelection);
     } else {
-      // Select all on this page (up to limit)
-      const remainingSlots = MAX_SELECTABLE_CONTACTS - newSelection.size;
-      
-      if (remainingSlots <= 0) {
-        toast({
-          title: "Selection Limit Reached",
-          description: `You've already selected ${MAX_SELECTABLE_CONTACTS} contacts (maximum).`,
-          variant: "destructive"
-        });
-        return;
-      }
-      
-      // Add contacts from current page up to the limit
-      let added = 0;
+      // Select all on this page (unlimited)
       for (const conv of displayConversations) {
-        if (added >= remainingSlots) {
-          toast({
-            title: "Selection Limit Reached",
-            description: `Added ${added} contacts. Total selected: ${newSelection.size}/${MAX_SELECTABLE_CONTACTS}`,
-            variant: "default"
-          });
-          break;
-        }
-        if (!newSelection.has(conv.sender_id)) {
-          newSelection.add(conv.sender_id);
-          added++;
-        }
+        newSelection.add(conv.sender_id);
       }
       
       setSelectedContacts(newSelection);
@@ -404,32 +481,10 @@ export default function ConversationsPage() {
 
   const handleSelectAllFromFilter = async () => {
     // Select ALL conversations matching current filters (not just current page)
-    if (selectedContacts.size >= MAX_SELECTABLE_CONTACTS) {
-      toast({
-        title: "Selection Limit Reached",
-        description: `You've already selected ${MAX_SELECTABLE_CONTACTS} contacts (maximum).`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Calculate how many we can add
-    const remainingSlots = MAX_SELECTABLE_CONTACTS - selectedContacts.size;
-    const totalToSelect = Math.min(totalCount, remainingSlots);
-
-    if (totalToSelect === 0) {
-      toast({
-        title: "No More Space",
-        description: `Selection is full (${MAX_SELECTABLE_CONTACTS} contacts).`,
-        variant: "destructive"
-      });
-      return;
-    }
+    const totalToSelect = totalCount;
 
     // Show confirmation
-    const confirmMessage = totalToSelect < totalCount
-      ? `You can select ${totalToSelect} more contacts (limit: ${MAX_SELECTABLE_CONTACTS}). Continue?`
-      : `Select all ${totalToSelect} conversations from filters?`;
+    const confirmMessage = `Select all ${totalToSelect} conversations from filters?`;
 
     if (!confirm(confirmMessage)) return;
 
@@ -439,7 +494,9 @@ export default function ConversationsPage() {
       if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      params.append('limit', String(totalToSelect)); // Get all up to limit
+      if (selectedTagIds.length > 0) params.append('include_tags', selectedTagIds.join(','));
+      if (exceptTagIds.length > 0) params.append('exclude_tags', exceptTagIds.join(','));
+      params.append('limit', String(totalToSelect)); // Get all
       params.append('page', '1');
 
       const response = await fetch(`/api/conversations?${params.toString()}`);
@@ -452,19 +509,16 @@ export default function ConversationsPage() {
 
       if (data.conversations) {
         const newSelection = new Set(selectedContacts);
-        let added = 0;
 
         for (const conv of data.conversations) {
-          if (added >= remainingSlots) break;
           newSelection.add(conv.sender_id);
-          added++;
         }
 
         setSelectedContacts(newSelection);
         
         toast({
           title: "Contacts Selected",
-          description: `Added ${added} contacts from filters. Total: ${newSelection.size}/${MAX_SELECTABLE_CONTACTS}`,
+          description: `Added ${data.conversations.length} contacts from filters. Total: ${newSelection.size}`,
           duration: 3000
         });
       }
@@ -483,15 +537,6 @@ export default function ConversationsPage() {
     if (newSelection.has(senderId)) {
       newSelection.delete(senderId);
     } else {
-      // Check if we've reached the maximum
-      if (newSelection.size >= MAX_SELECTABLE_CONTACTS) {
-        toast({
-          title: "Selection Limit Reached",
-          description: `You can select up to ${MAX_SELECTABLE_CONTACTS} contacts at once.`,
-          variant: "destructive"
-        });
-        return;
-      }
       newSelection.add(senderId);
     }
     setSelectedContacts(newSelection);
@@ -694,7 +739,7 @@ export default function ConversationsPage() {
             {syncMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                Syncing...
+                Syncing... {realtimeStats.inserts + realtimeStats.updates > 0 && `(${realtimeStats.inserts + realtimeStats.updates})`}
               </>
             ) : (
               <>
@@ -779,8 +824,8 @@ export default function ConversationsPage() {
                 <p className="text-3xl font-bold mt-2">{selectedContacts.size}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {selectedContacts.size > 0 
-                    ? `${Math.ceil(selectedContacts.size / 100)} batch${selectedContacts.size > 100 ? 'es' : ''} • Max ${MAX_SELECTABLE_CONTACTS}`
-                    : `Max ${MAX_SELECTABLE_CONTACTS} contacts`}
+                    ? `${Math.ceil(selectedContacts.size / 100)} batch${selectedContacts.size > 100 ? 'es' : ''} • Unlimited`
+                    : `Unlimited contacts`}
                 </p>
               </div>
               <div className="bg-purple-100 p-3 rounded-lg">
@@ -805,10 +850,7 @@ export default function ConversationsPage() {
                     {selectedContacts.size} contact{selectedContacts.size !== 1 ? 's' : ''} selected
                   </p>
                   <p className="text-sm text-purple-700">
-                    {Math.ceil(selectedContacts.size / 100)} batch{selectedContacts.size > 100 ? 'es' : ''} will be created • 
-                    {selectedContacts.size < MAX_SELECTABLE_CONTACTS 
-                      ? ` ${MAX_SELECTABLE_CONTACTS - selectedContacts.size} slots remaining`
-                      : ' Maximum reached'}
+                    {Math.ceil(selectedContacts.size / 100)} batch{selectedContacts.size > 100 ? 'es' : ''} will be created
                   </p>
                 </div>
               </div>
@@ -900,17 +942,50 @@ export default function ConversationsPage() {
 
             {/* Search */}
             <div>
-              <Label htmlFor="search">Search</Label>
-              <div className="relative mt-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Name, ID, message..."
-                  className="pl-10"
-                />
+              <Label htmlFor="search">Search Contacts</Label>
+              <div className="flex gap-2 mt-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setCurrentPage(1); // Reset to first page on search
+                      }
+                    }}
+                    placeholder="Search by name, sender ID, or message content..."
+                    className="pl-10"
+                  />
+                </div>
+                {searchQuery && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setCurrentPage(1);
+                    }}
+                    title="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+                <Button
+                  onClick={() => setCurrentPage(1)}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={!searchQuery.trim()}
+                >
+                  <Search className="mr-2 w-4 h-4" />
+                  Search
+                </Button>
               </div>
+              {searchQuery && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Searching for: &quot;{searchQuery}&quot;
+                </p>
+              )}
             </div>
           </div>
 
@@ -955,18 +1030,53 @@ export default function ConversationsPage() {
                     Select All on Page ({displayConversations.length})
                   </Label>
                 </div>
-                {totalCount > ITEMS_PER_PAGE && (startDate || endDate || selectedPageId !== 'all') && (
+                {totalCount > ITEMS_PER_PAGE && (startDate || endDate || selectedPageId !== 'all' || selectedTagIds.length > 0) && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleSelectAllFromFilter}
-                    disabled={selectedContacts.size >= MAX_SELECTABLE_CONTACTS}
                     className="whitespace-nowrap"
                   >
-                    📋 Select All {Math.min(totalCount, MAX_SELECTABLE_CONTACTS - selectedContacts.size)} from Filters
+                    📋 Select All {totalCount} from Filters
                   </Button>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Quick Search Bar in Conversations Header */}
+          <div className="flex gap-2 items-center pt-4 border-t">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setCurrentPage(1);
+                  }
+                }}
+                placeholder="🔍 Search contacts: name, ID, or message content..."
+                className="pl-10"
+              />
+            </div>
+            {searchQuery && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCurrentPage(1);
+                  }}
+                >
+                  <X className="mr-1 w-4 h-4" />
+                  Clear
+                </Button>
+                <Badge className="bg-blue-100 text-blue-700 px-3 py-1.5">
+                  {displayConversations.length} found
+                </Badge>
+              </>
             )}
           </div>
         </CardHeader>
@@ -999,7 +1109,11 @@ export default function ConversationsPage() {
                   {syncMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                      Syncing...
+                      Syncing... {realtimeStats.inserts + realtimeStats.updates > 0 && 
+                        <span className="ml-2 font-bold text-blue-600">
+                          ({realtimeStats.inserts + realtimeStats.updates} synced)
+                        </span>
+                      }
                     </>
                   ) : (
                     <>
@@ -1186,39 +1300,125 @@ export default function ConversationsPage() {
         </CardContent>
       </Card>
 
-      {/* Bulk Tag Assignment Dialog */}
+      {/* Bulk Tag Management Dialog */}
       <Dialog open={isBulkTagDialogOpen} onOpenChange={setIsBulkTagDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Tag Selected Conversations</DialogTitle>
+            <DialogTitle>Manage Tags for Selected Conversations</DialogTitle>
             <DialogDescription>
-              Apply tags to {selectedContacts.size} selected conversation{selectedContacts.size !== 1 ? 's' : ''}
+              Update tags for {selectedContacts.size} selected conversation{selectedContacts.size !== 1 ? 's' : ''}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
-            <TagSelector
-              selectedTagIds={bulkTagIds}
-              onTagChange={setBulkTagIds}
-            />
+            {/* Action Selector */}
+            <div>
+              <Label htmlFor="tag-action">Action</Label>
+              <Select value={bulkTagAction} onValueChange={(value) => setBulkTagAction(value as 'assign' | 'remove' | 'replace')}>
+                <SelectTrigger id="tag-action" className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="assign">
+                    <div className="flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-green-600" />
+                      <div>
+                        <div className="font-medium">Add Tags</div>
+                        <div className="text-xs text-muted-foreground">Add tags while keeping existing ones</div>
+                      </div>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="remove">
+                    <div className="flex items-center gap-2">
+                      <X className="w-4 h-4 text-red-600" />
+                      <div>
+                        <div className="font-medium">Remove Tags</div>
+                        <div className="text-xs text-muted-foreground">Remove specific tags or all tags</div>
+                      </div>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="replace">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-blue-600" />
+                      <div>
+                        <div className="font-medium">Replace Tags</div>
+                        <div className="text-xs text-muted-foreground">Remove all tags and add selected ones</div>
+                      </div>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Tag Selector */}
+            <div>
+              <Label>
+                {bulkTagAction === 'assign' && 'Select tags to add'}
+                {bulkTagAction === 'remove' && 'Select tags to remove (or none for all)'}
+                {bulkTagAction === 'replace' && 'Select new tags'}
+              </Label>
+              <div className="mt-2">
+                <TagSelector
+                  selectedTagIds={bulkTagIds}
+                  onTagChange={setBulkTagIds}
+                />
+              </div>
+            </div>
+
+            {/* Help Text */}
+            <div className="bg-muted p-3 rounded-lg text-sm">
+              {bulkTagAction === 'assign' && (
+                <p>Selected tags will be <strong className="text-green-600">added</strong> to the conversations. Existing tags will not be removed.</p>
+              )}
+              {bulkTagAction === 'remove' && bulkTagIds.length > 0 && (
+                <p>Selected tags will be <strong className="text-red-600">removed</strong> from the conversations. Other tags will remain.</p>
+              )}
+              {bulkTagAction === 'remove' && bulkTagIds.length === 0 && (
+                <p className="text-red-600"><strong>All tags</strong> will be removed from the selected conversations.</p>
+              )}
+              {bulkTagAction === 'replace' && (
+                <p>All existing tags will be removed and <strong className="text-blue-600">replaced</strong> with the selected tags.</p>
+              )}
+            </div>
             
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                onClick={() => setIsBulkTagDialogOpen(false)}
+                onClick={() => {
+                  setIsBulkTagDialogOpen(false);
+                  setBulkTagIds([]);
+                  setBulkTagAction('assign');
+                }}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleBulkTagAssignment}
                 disabled={bulkTagMutation.isPending}
+                className={
+                  bulkTagAction === 'assign' ? 'bg-green-600 hover:bg-green-700' :
+                  bulkTagAction === 'remove' ? 'bg-red-600 hover:bg-red-700' :
+                  'bg-blue-600 hover:bg-blue-700'
+                }
               >
-                {bulkTagMutation.isPending ? 'Applying...' : 'Apply Tags'}
+                {bulkTagMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    {bulkTagAction === 'assign' && 'Add Tags'}
+                    {bulkTagAction === 'remove' && 'Remove Tags'}
+                    {bulkTagAction === 'replace' && 'Replace Tags'}
+                  </>
+                )}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

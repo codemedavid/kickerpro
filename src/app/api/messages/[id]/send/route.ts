@@ -144,9 +144,48 @@ export async function POST(
     console.log('[Send API] Starting asynchronous batch processing...');
     
     // Process batches in the background without blocking the response
-    processBatchesAsync(messageId, totalBatches, request).catch(error => {
+    const processingPromise = processBatchesAsync(messageId, totalBatches, request);
+    
+    // Don't await, but ensure it runs
+    processingPromise.catch(error => {
       console.error('[Send API] Background batch processing error:', error);
+      
+      // Update message status on error
+      createClient().then(async (supabase) => {
+        await supabase
+          .from('messages')
+          .update({ 
+            status: 'failed',
+            error_message: `Background processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+          })
+          .eq('id', messageId);
+      }).catch(updateError => {
+        console.error('[Send API] Failed to update message after error:', updateError);
+      });
     });
+
+    // IMMEDIATE FALLBACK: If we're in development or if the async might fail,
+    // trigger the first batch immediately in a separate request
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Send API] DEV MODE: Triggering first batch immediately as fallback...');
+      
+      // Fire and forget - trigger first batch
+      setTimeout(async () => {
+        try {
+          const origin = request.nextUrl.origin;
+          await fetch(`${origin}/api/messages/${messageId}/batches/process`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: request.headers.get('cookie') || ''
+            }
+          });
+          console.log('[Send API] Fallback batch trigger successful');
+        } catch (fallbackError) {
+          console.error('[Send API] Fallback batch trigger failed:', fallbackError);
+        }
+      }, 100); // 100ms delay
+    }
 
     return NextResponse.json({
       success: true,
@@ -170,48 +209,90 @@ export async function POST(
 async function processBatchesAsync(messageId: string, totalBatches: number, request: NextRequest) {
   console.log('[Send API] 🚀 Starting background batch processing for', totalBatches, 'batches');
   
+  const supabase = await createClient();
+  
   try {
     // Process batches sequentially with delays to allow polling to catch up
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
       console.log(`[Send API] 🚀 Processing batch ${batchIndex + 1}/${totalBatches} in background`);
       
-      const origin = request.nextUrl.origin;
-      const batchResponse = await fetch(
-        `${origin}/api/messages/${messageId}/batches/process`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Cookie: request.headers.get('cookie') || ''
+      try {
+        const origin = request.nextUrl.origin;
+        const batchResponse = await fetch(
+          `${origin}/api/messages/${messageId}/batches/process`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: request.headers.get('cookie') || ''
+            },
+            signal: AbortSignal.timeout(120000) // 2 minute timeout per batch
           }
+        );
+
+        if (!batchResponse.ok) {
+          const errorText = await batchResponse.text();
+          console.error(`[Send API] 🚀 Batch ${batchIndex + 1} processing failed with status ${batchResponse.status}:`, errorText);
+          
+          // Update message status to show error
+          await supabase
+            .from('messages')
+            .update({ 
+              status: 'partially_sent',
+              error_message: `Batch ${batchIndex + 1} failed: ${errorText.substring(0, 200)}`
+            })
+            .eq('id', messageId);
+          
+          break;
         }
-      );
 
-      if (!batchResponse.ok) {
-        const errorData = await batchResponse.json();
-        console.error(`[Send API] 🚀 Batch ${batchIndex + 1} processing failed:`, errorData);
+        const batchResult = await batchResponse.json();
+        console.log(`[Send API] 🚀 Batch ${batchIndex + 1} completed:`, {
+          sent: batchResult.batch?.sent || 0,
+          failed: batchResult.batch?.failed || 0,
+          status: batchResult.batch?.status || 'unknown'
+        });
+
+        // If no more batches to process, break
+        if (!batchResult.hasMore) {
+          console.log('[Send API] 🚀 All batches processed in background');
+          break;
+        }
+
+        // Add a small delay to allow frontend polling to catch up
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (batchError) {
+        console.error(`[Send API] 🚀 Batch ${batchIndex + 1} processing exception:`, batchError);
+        
+        // Update message to show error
+        await supabase
+          .from('messages')
+          .update({ 
+            status: 'partially_sent',
+            error_message: `Batch processing error: ${batchError instanceof Error ? batchError.message : 'Unknown error'}`
+          })
+          .eq('id', messageId);
+        
         break;
       }
-
-      const batchResult = await batchResponse.json();
-      console.log(`[Send API] 🚀 Batch ${batchIndex + 1} completed:`, {
-        sent: batchResult.batch?.sent || 0,
-        failed: batchResult.batch?.failed || 0,
-        status: batchResult.batch?.status || 'unknown'
-      });
-
-      // If no more batches to process, break
-      if (!batchResult.hasMore) {
-        console.log('[Send API] 🚀 All batches processed in background');
-        break;
-      }
-
-      // Add a small delay to allow frontend polling to catch up
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     console.log('[Send API] 🚀 Background batch processing completed');
   } catch (error) {
-    console.error('[Send API] 🚀 Background batch processing error:', error);
+    console.error('[Send API] 🚀 Background batch processing fatal error:', error);
+    
+    // Final fallback: update message status
+    try {
+      await supabase
+        .from('messages')
+        .update({ 
+          status: 'failed',
+          error_message: `Background processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        })
+        .eq('id', messageId);
+    } catch (updateError) {
+      console.error('[Send API] 🚀 Failed to update message status after error:', updateError);
+    }
   }
 }

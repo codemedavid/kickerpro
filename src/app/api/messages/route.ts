@@ -89,7 +89,13 @@ export async function POST(request: NextRequest) {
       selected_recipients,
       // selected_contacts_data,
       message_tag,
-      media_attachments
+      media_attachments,
+      auto_fetch_enabled,
+      auto_fetch_page_id,
+      include_tag_ids,
+      exclude_tag_ids,
+      use_ai_bulk_send,
+      ai_messages_map
     } = body;
 
     // Validation
@@ -130,6 +136,12 @@ export async function POST(request: NextRequest) {
         type: string;
         size?: number;
       }>;
+      auto_fetch_enabled?: boolean;
+      auto_fetch_page_id?: string | null;
+      include_tag_ids?: string[];
+      exclude_tag_ids?: string[];
+      use_ai_bulk_send?: boolean;
+      ai_messages_map?: Record<string, string>;
     } = {
       title,
       content,
@@ -141,6 +153,21 @@ export async function POST(request: NextRequest) {
       scheduled_for: scheduled_for || null,
       message_tag: message_tag || null,
     };
+
+    // Add auto-fetch and tag filtering for scheduled messages
+    if (status === 'scheduled' && auto_fetch_enabled) {
+      messageData.auto_fetch_enabled = true;
+      messageData.auto_fetch_page_id = auto_fetch_page_id || page_id;
+      messageData.include_tag_ids = include_tag_ids || [];
+      messageData.exclude_tag_ids = exclude_tag_ids || [];
+    }
+
+    // Add AI bulk send data if enabled
+    if (use_ai_bulk_send && ai_messages_map) {
+      messageData.use_ai_bulk_send = true;
+      messageData.ai_messages_map = ai_messages_map;
+      console.log('[Messages API] AI Bulk Send enabled with', Object.keys(ai_messages_map).length, 'personalized messages');
+    }
 
     // Add selected recipients if provided
     if (selected_recipients && Array.isArray(selected_recipients)) {

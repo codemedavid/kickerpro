@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Force Send Scheduled Messages</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .warning {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        button {
+            background: #ef4444;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #dc2626;
+        }
+        .check-btn {
+            background: #3b82f6;
+        }
+        .check-btn:hover {
+            background: #2563eb;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 13px;
+            max-height: 600px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .success {
+            color: #10b981;
+            font-weight: bold;
+        }
+        .error {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .step {
+            background: #e0e7ff;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #6366f1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Force Send All Scheduled Messages</h1>
+        <p>This will send ALL scheduled messages immediately, regardless of their scheduled time.</p>
+        
+        <div class="warning">
+            <strong>⚠️ WARNING:</strong> This bypasses the scheduled time and sends everything RIGHT NOW!
+        </div>
+
+        <div class="step">
+            <strong>Step 1:</strong> Check what messages exist
+        </div>
+        <button class="check-btn" onclick="checkScheduled()">Check Scheduled Messages</button>
+
+        <div class="step">
+            <strong>Step 2:</strong> Force send ALL scheduled messages
+        </div>
+        <button onclick="forceSendAll()">🔥 FORCE SEND ALL NOW</button>
+
+        <div class="step">
+            <strong>Step 3:</strong> Test dispatch endpoint
+        </div>
+        <button class="check-btn" onclick="testDispatch()">Test Auto-Dispatch</button>
+        
+        <button class="check-btn" onclick="clearResult()" style="background: #6b7280;">Clear</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function checkScheduled() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '🔍 Checking for scheduled messages...\n\n';
+            
+            try {
+                const response = await fetch('/api/messages/check-scheduled');
+                const json = await response.json();
+                
+                resultDiv.innerHTML += `Status: ${response.status}\n\n`;
+                resultDiv.innerHTML += 'Result:\n' + JSON.stringify(json, null, 2);
+                
+                if (response.ok) {
+                    const count = json.total_scheduled || 0;
+                    if (count === 0) {
+                        resultDiv.innerHTML = '<span class="error">❌ NO SCHEDULED MESSAGES FOUND!</span>\n\n' + 
+                            'You need to CREATE a scheduled message first!\n\n' +
+                            '1. Go to Compose page\n' +
+                            '2. Create a message\n' +
+                            '3. Toggle ON "Schedule for later"\n' +
+                            '4. Set a time\n' +
+                            '5. Click "Create Message"\n\n' +
+                            resultDiv.innerHTML;
+                    } else {
+                        resultDiv.innerHTML = '<span class="success">✅ FOUND ' + count + ' SCHEDULED MESSAGE(S)</span>\n\n' + resultDiv.innerHTML;
+                    }
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">❌ ERROR!</span>\n\n' + error.message;
+            }
+        }
+
+        async function forceSendAll() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '🚀 FORCE SENDING ALL SCHEDULED MESSAGES...\n\n';
+            
+            try {
+                const response = await fetch('/api/messages/send-all-scheduled');
+                const json = await response.json();
+                
+                resultDiv.innerHTML += `Status: ${response.status}\n\n`;
+                resultDiv.innerHTML += 'Result:\n' + JSON.stringify(json, null, 2);
+                
+                if (response.ok && json.sent > 0) {
+                    resultDiv.innerHTML = '<span class="success">✅ SUCCESS! SENT ' + json.sent + ' MESSAGE(S)!</span>\n\n' +
+                        'Check your Facebook Messenger!\n\n' +
+                        resultDiv.innerHTML;
+                } else if (response.ok && json.sent === 0) {
+                    resultDiv.innerHTML = '<span class="error">❌ NO MESSAGES TO SEND</span>\n\n' +
+                        'Create a scheduled message first!\n\n' +
+                        resultDiv.innerHTML;
+                } else {
+                    resultDiv.innerHTML = '<span class="error">❌ FAILED!</span>\n\n' + resultDiv.innerHTML;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">❌ ERROR!</span>\n\n' + error.message;
+            }
+        }
+
+        async function testDispatch() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '🧪 Testing dispatch endpoint...\n\n';
+            
+            try {
+                const response = await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
+                const text = await response.text();
+                
+                resultDiv.innerHTML += `Status: ${response.status}\n\n`;
+                
+                try {
+                    const json = JSON.parse(text);
+                    resultDiv.innerHTML += 'Result:\n' + JSON.stringify(json, null, 2);
+                    
+                    if (response.ok) {
+                        resultDiv.innerHTML = '<span class="success">✅ DISPATCH WORKING!</span>\n\n' + resultDiv.innerHTML;
+                    } else {
+                        resultDiv.innerHTML = '<span class="error">❌ DISPATCH FAILED!</span>\n\n' + resultDiv.innerHTML;
+                    }
+                } catch {
+                    resultDiv.innerHTML += 'Raw response:\n' + text;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">❌ ERROR!</span>\n\n' + error.message;
+            }
+        }
+
+        function clearResult() {
+            document.getElementById('result').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
+
+
+

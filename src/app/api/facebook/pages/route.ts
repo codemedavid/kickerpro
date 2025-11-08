@@ -47,16 +47,17 @@ export async function GET() {
       );
     }
 
-    console.log('[Facebook Pages API] Fetching ALL pages from Facebook Graph API...');
+    console.log('[Facebook Pages API] Fetching ALL pages from Facebook Graph API with pagination...');
 
-    // Fetch ALL pages using pagination
+    // Fetch ALL pages using pagination (supports unlimited pages)
     let allPages: FacebookPageData[] = [];
     let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=100&access_token=${accessToken}`;
-    let pageCount = 0;
+    let batchCount = 0;
+    const MAX_BATCHES = 50; // Safety limit: 50 batches × 100 = 5000 pages max
 
-    while (nextUrl) {
-      pageCount++;
-      console.log(`[Facebook Pages API] Fetching page ${pageCount}...`);
+    while (nextUrl && batchCount < MAX_BATCHES) {
+      batchCount++;
+      console.log(`[Facebook Pages API] 📄 Fetching batch ${batchCount}...`);
 
       const response = await fetch(nextUrl, {
         method: 'GET',
@@ -67,32 +68,40 @@ export async function GET() {
 
       if (!response.ok) {
         const error = await response.json();
-        console.error('[Facebook Pages API] Facebook API error:', error);
+        console.error('[Facebook Pages API] ❌ Facebook API error:', error);
         throw new Error(error.error?.message || 'Failed to fetch pages from Facebook');
       }
 
       const data: FacebookResponse & { paging?: { next?: string } } = await response.json();
 
       if (data.error) {
-        console.error('[Facebook Pages API] Facebook returned error:', data.error);
+        console.error('[Facebook Pages API] ❌ Facebook returned error:', data.error);
         throw new Error(data.error.message);
       }
 
       // Add pages from this batch
       if (data.data && data.data.length > 0) {
         allPages = allPages.concat(data.data);
-        console.log(`[Facebook Pages API] Got ${data.data.length} pages in batch ${pageCount}. Total so far: ${allPages.length}`);
+        console.log(`[Facebook Pages API] ✅ Batch ${batchCount}: Got ${data.data.length} pages. Total: ${allPages.length}`);
+      } else {
+        console.log(`[Facebook Pages API] ⚠️  Batch ${batchCount}: No pages in this batch`);
       }
 
       // Check if there's a next page
       nextUrl = data.paging?.next || null;
       
       if (nextUrl) {
-        console.log('[Facebook Pages API] More pages available, fetching next batch...');
+        console.log('[Facebook Pages API] 📄 More pages available, fetching next batch...');
+      } else {
+        console.log('[Facebook Pages API] ✅ Reached end of pages');
       }
     }
 
-    console.log(`[Facebook Pages API] Fetched ALL ${allPages.length} pages from Facebook in ${pageCount} batch(es)`);
+    if (batchCount >= MAX_BATCHES) {
+      console.warn(`[Facebook Pages API] ⚠️  Stopped at ${MAX_BATCHES} batches (safety limit)`);
+    }
+
+    console.log(`[Facebook Pages API] 🎉 Fetched ALL ${allPages.length} pages from Facebook in ${batchCount} batch(es)`);
 
     return NextResponse.json({
       success: true,
@@ -112,4 +121,7 @@ export async function GET() {
     );
   }
 }
+
+
+
 

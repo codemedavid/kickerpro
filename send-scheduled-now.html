@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Send Scheduled Messages</title>
+    <meta http-equiv="refresh" content="10">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1e293b;
+            color: white;
+        }
+        .container {
+            background: #334155;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 32px;
+        }
+        .status {
+            padding: 15px;
+            background: #475569;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-size: 16px;
+        }
+        .success {
+            background: #10b981;
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .time {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⏰ Auto-Send Active</h1>
+        <p>This page checks for scheduled messages every 10 seconds and sends them automatically.</p>
+        <p><strong>Keep this tab open!</strong></p>
+        
+        <div class="status" id="status">
+            Checking...
+        </div>
+        
+        <div class="time">
+            Last check: <span id="time">-</span>
+        </div>
+    </div>
+
+    <script>
+        async function checkAndSend() {
+            const now = new Date();
+            document.getElementById('time').textContent = now.toLocaleTimeString();
+            
+            try {
+                console.log('[Auto-Send] Checking at', now.toLocaleTimeString());
+                
+                const response = await fetch('/api/messages/scheduled/dispatch', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                console.log('[Auto-Send] Result:', result);
+                
+                if (response.ok) {
+                    if (result.dispatched > 0) {
+                        document.getElementById('status').innerHTML = 
+                            '<div class="success">✅ SENT ' + result.dispatched + ' MESSAGE(S)!</div>' +
+                            'Messages were sent to Facebook Messenger!';
+                        console.log('[Auto-Send] ✅ Sent', result.dispatched, 'message(s)');
+                    } else {
+                        document.getElementById('status').textContent = 
+                            'No messages due yet. Checking again in 10 seconds...';
+                    }
+                } else {
+                    document.getElementById('status').innerHTML = 
+                        '<div style="background:#ef4444;padding:10px;border-radius:6px;">❌ Error: ' + 
+                        (result.error || 'Unknown error') + '</div>';
+                    console.error('[Auto-Send] Error:', result);
+                }
+            } catch (error) {
+                console.error('[Auto-Send] Exception:', error);
+                document.getElementById('status').innerHTML = 
+                    '<div style="background:#ef4444;padding:10px;border-radius:6px;">❌ Exception: ' + 
+                    error.message + '</div>';
+            }
+        }
+        
+        // Check immediately on load
+        checkAndSend();
+        
+        // Then check every 10 seconds (page auto-refreshes every 10s anyway)
+        setInterval(checkAndSend, 10000);
+    </script>
+</body>
+</html>
+
+
+

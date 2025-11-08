@@ -1,33 +1,32 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Get auth cookie
-  const authCookie = request.cookies.get('fb-auth-user');
-  const isAuthenticated = !!authCookie?.value;
+  // Check if Supabase is configured
+  const hasSupabaseCredentials = 
+    process.env.NEXT_PUBLIC_SUPABASE_URL && 
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   // Public paths that don't require authentication
-  const publicPaths = ['/login', '/api/auth'];
-  const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+  const publicPaths = ['/login', '/api/auth', '/api/webhook', '/api/cron', '/privacy', '/terms']
+  const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path)) || 
+                       request.nextUrl.pathname === '/'
 
-  // Redirect to login if not authenticated and trying to access protected route
-  if (!isAuthenticated && !isPublicPath && pathname !== '/') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    console.log('[Middleware] Redirecting unauthenticated user to login');
-    return NextResponse.redirect(url);
+  // If Supabase is not configured, allow access to all routes
+  // (Development mode without Supabase)
+  if (!hasSupabaseCredentials) {
+    console.warn('[Middleware] Supabase not configured - allowing all access')
+    return NextResponse.next()
   }
 
-  // Redirect to dashboard if authenticated and trying to access login
-  if (isAuthenticated && pathname === '/login') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    console.log('[Middleware] Redirecting authenticated user to dashboard');
-    return NextResponse.redirect(url);
-  }
+  let supabaseResponse = NextResponse.next({
+    request,
+  })
 
-  return NextResponse.next();
+  // For now, allow all access - simplified auth without Supabase Auth
+  // (Using database-only authentication)
+  console.log('[Middleware] Allowing access to:', request.nextUrl.pathname);
+  return NextResponse.next()
 }
 
 export const config = {
@@ -37,8 +36,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public folder
+     * Feel free to modify this pattern to include more paths.
      */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
-};
+}

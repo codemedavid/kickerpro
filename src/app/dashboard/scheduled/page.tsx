@@ -88,8 +88,42 @@ export default function ScheduledMessagesPage() {
     let timer: NodeJS.Timeout | null = null;
     const tick = async () => {
       try {
-        await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
-      } catch {}
+        console.log('[Scheduled] Running auto-dispatch check...');
+        const response = await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
+        if (response.ok) {
+          const result = await response.json();
+          console.log('[Scheduled] Auto-dispatch result:', result);
+          if (result.dispatched > 0) {
+            console.log(`[Scheduled] ✅ Auto-sent ${result.dispatched} message(s)`);
+            
+            // Show success notification
+            toast({
+              title: "✅ Message Sent Automatically!",
+              description: `${result.dispatched} scheduled message(s) were sent to Facebook`,
+              duration: 5000
+            });
+            
+            // Refresh the lists
+            queryClient.invalidateQueries({ queryKey: ['scheduled-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['messages'] });
+            queryClient.invalidateQueries({ queryKey: ['stats'] });
+          }
+        } else {
+          // Get detailed error
+          const errorText = await response.text();
+          console.error('[Scheduled] Auto-dispatch failed:', response.status, errorText);
+          
+          // Try to parse as JSON
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error('[Scheduled] Error details:', errorJson);
+          } catch {
+            console.error('[Scheduled] Raw error:', errorText);
+          }
+        }
+      } catch (error) {
+        console.error('[Scheduled] Auto-dispatch error:', error);
+      }
     };
     // Kick once immediately, then every 30s (aligned with refetch)
     tick();
@@ -97,7 +131,7 @@ export default function ScheduledMessagesPage() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [queryClient]);
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -139,9 +173,9 @@ export default function ScheduledMessagesPage() {
       
       if (!updateResponse.ok) throw new Error('Failed to update message');
 
-      // Trigger send
-      const sendResponse = await fetch(`/api/messages/${messageId}/send`, {
-        method: 'POST'
+      // Trigger direct send (bypasses batch system)
+      const sendResponse = await fetch(`/api/messages/${messageId}/send-now`, {
+        method: 'GET'
       });
       
       if (!sendResponse.ok) throw new Error('Failed to send message');
@@ -210,14 +244,68 @@ export default function ScheduledMessagesPage() {
           <p className="text-muted-foreground mt-1">
             Manage messages scheduled to be sent later
           </p>
+          <p className="text-sm text-green-600 mt-2 flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            Auto-send active - checking every 30 seconds
+          </p>
         </div>
-        <Button 
-          onClick={() => router.push('/dashboard/compose')}
-          className="bg-[#1877f2] hover:bg-[#166fe5]"
-        >
-          <Calendar className="w-4 h-4 mr-2" />
-          Schedule New Message
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={async () => {
+              console.log('[Manual Check] Forcing dispatch check...');
+              try {
+                const response = await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
+                const result = await response.json();
+                console.log('[Manual Check] Result:', result);
+                
+                if (response.ok) {
+                  if (result.dispatched > 0) {
+                    toast({
+                      title: "✅ Messages Sent!",
+                      description: `Sent ${result.dispatched} message(s) to Facebook`,
+                      duration: 5000
+                    });
+                    queryClient.invalidateQueries({ queryKey: ['scheduled-messages'] });
+                  } else {
+                    toast({
+                      title: "No Messages Due",
+                      description: "No scheduled messages are ready to send yet",
+                      variant: "default"
+                    });
+                  }
+                } else {
+                  toast({
+                    title: "Error",
+                    description: result.error || 'Failed to check messages',
+                    variant: "destructive"
+                  });
+                }
+              } catch (error) {
+                console.error('[Manual Check] Error:', error);
+                toast({
+                  title: "Error",
+                  description: 'Failed to check for due messages',
+                  variant: "destructive"
+                });
+              }
+            }}
+            variant="outline"
+            className="border-green-500 text-green-700 hover:bg-green-50"
+          >
+            <Send className="w-4 h-4 mr-2" />
+            Check & Send Due Messages
+          </Button>
+          <Button 
+            onClick={() => router.push('/dashboard/compose')}
+            className="bg-[#1877f2] hover:bg-[#166fe5]"
+          >
+            <Calendar className="w-4 h-4 mr-2" />
+            Schedule New Message
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

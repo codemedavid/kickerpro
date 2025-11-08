@@ -30,14 +30,31 @@ export function TagFilter({ selectedTagIds, onTagChange, exceptTagIds = [], onEx
   const [isOpen, setIsOpen] = useState(false);
 
   // Fetch user's tags
-  const { data: tags = [], isLoading } = useQuery<Tag[]>({
+  const { data: tags = [], isLoading, error } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: async () => {
+      console.log('[TagFilter] Fetching tags...');
       const response = await fetch('/api/tags');
-      if (!response.ok) throw new Error('Failed to fetch tags');
+      console.log('[TagFilter] Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[TagFilter] Failed to fetch tags:', errorData);
+        throw new Error('Failed to fetch tags');
+      }
+      
       const data = await response.json();
+      console.log('[TagFilter] Tags data:', data);
+      console.log('[TagFilter] Tags count:', data.tags?.length || 0);
       return data.tags || [];
     }
+  });
+
+  console.log('[TagFilter] Current state:', { 
+    isLoading, 
+    tagsCount: tags.length, 
+    error: error?.message,
+    tags: tags 
   });
 
   const toggleTag = (tagId: string) => {

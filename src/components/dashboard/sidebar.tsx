@@ -14,7 +14,9 @@ import {
   Menu,
   X,
   TrendingUp,
-  FileText
+  FileText,
+  Tag,
+  Bot
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -26,7 +28,9 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Conversations', href: '/dashboard/conversations', icon: Users },
   { name: 'Compose Message', href: '/dashboard/compose', icon: MessageSquare },
+  { name: 'AI Automations', href: '/dashboard/ai-automations', icon: Bot },
   { name: 'Pipeline & Opportunities', href: '/dashboard/pipeline', icon: TrendingUp },
+  { name: 'Tags', href: '/dashboard/tags', icon: Tag },
   { name: 'Scheduled', href: '/dashboard/scheduled', icon: Calendar },
   { name: 'Drafts', href: '/dashboard/drafts', icon: FileText },
   { name: 'Message History', href: '/dashboard/history', icon: History },

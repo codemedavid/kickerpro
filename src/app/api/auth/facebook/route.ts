@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
 
 // Helper function to exchange short-lived token for long-lived token (60 days)
 async function exchangeForLongLivedToken(shortLivedToken: string): Promise<string> {
@@ -62,51 +61,15 @@ export async function POST(request: NextRequest) {
     const hasSupabaseKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!hasSupabaseUrl || !hasSupabaseKey) {
-      console.warn('[Facebook Auth] Supabase not configured, using development mode');
-      
-      // Development mode - set cookie without database
-      const cookieStore = await cookies();
-      const devUserId = `dev_${userID}`;
-      
-      cookieStore.set('fb-auth-user', devUserId, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 7,
-        path: '/'
-      });
-
-      // Store Facebook access token for API calls (using long-lived token)
-      cookieStore.set('fb-access-token', longLivedToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 60, // 60 days to match long-lived token
-        path: '/'
-      });
-
-      // Store user data in cookie for dev mode
-      cookieStore.set('fb-auth-user-data', JSON.stringify({
-        id: devUserId,
-        facebook_id: userID,
-        name,
-        email: email || `fb_${userID}@facebook.local`,
-        profile_picture: picture,
-        role: 'admin'
-      }), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 7,
-        path: '/'
-      });
-
-      return NextResponse.json({ 
-        success: true, 
-        userId: devUserId,
-        message: 'Authentication successful (Development Mode)',
-        mode: 'development'
-      });
+      console.error('[Facebook Auth] Supabase credentials not configured');
+      return NextResponse.json(
+        { 
+          error: 'Supabase not configured',
+          details: 'Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables',
+          success: false
+        },
+        { status: 500 }
+      );
     }
 
     const supabase = await createClient();
@@ -173,47 +136,79 @@ export async function POST(request: NextRequest) {
       console.log('[Facebook Auth] User created successfully:', userId);
     }
 
-    // Create a session by setting cookies
-    const cookieStore = await cookies();
-    
-    // Store user ID
-    cookieStore.set('fb-auth-user', userId, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/'
-    });
+    // Store Facebook access token in user record
+    console.log('[Facebook Auth] Storing Facebook access token...');
+    const { error: tokenUpdateError } = await supabase
+      .from('users')
+      .update({
+        facebook_access_token: longLivedToken,
+        facebook_token_updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
 
-    // Store Facebook access token for API calls (using long-lived token - 60 days)
-    cookieStore.set('fb-access-token', longLivedToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 60, // 60 days to match long-lived token
-      path: '/'
-    });
+    if (tokenUpdateError) {
+      console.warn('[Facebook Auth] Failed to store Facebook token:', tokenUpdateError);
+    } else {
+      console.log('[Facebook Auth] ✅ Facebook token stored successfully');
+    }
 
-    console.log('[Facebook Auth] Session created for user:', userId);
+    console.log('[Facebook Auth] ✅ Authentication complete - user ready');
 
-    return NextResponse.json({ 
+    // Set cookies for user session
+    const response = NextResponse.json({ 
       success: true, 
       userId,
       message: 'Authentication successful',
-      mode: 'production'
+      mode: 'database-auth'
     });
+
+    // Set user ID cookie for authentication
+    response.cookies.set('fb-user-id', userId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: '/'
+    });
+
+    // Also set legacy cookie names for compatibility with existing pages API
+    response.cookies.set('fb-auth-user', userId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30,
+      path: '/'
+    });
+
+    // Set Facebook access token cookie (for pages API)
+    response.cookies.set('fb-access-token', longLivedToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 60, // 60 days (matches long-lived token)
+      path: '/'
+    });
+
+    console.log('[Facebook Auth] ✅ All session cookies set (user ID + access token)');
+
+    return response;
   } catch (error) {
-    console.error('[Facebook Auth] Error:', error);
+    console.error('[Facebook Auth] ❌ CRITICAL ERROR:', error);
     const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
     const errorDetails = error instanceof Error ? error.stack : String(error);
     
-    console.error('[Facebook Auth] Error details:', errorDetails);
+    console.error('[Facebook Auth] Error message:', errorMessage);
+    console.error('[Facebook Auth] Error stack:', errorDetails);
+    console.error('[Facebook Auth] Error type:', typeof error);
+    console.error('[Facebook Auth] Error object:', JSON.stringify(error, null, 2));
     
     return NextResponse.json(
       { 
         error: errorMessage,
         details: errorDetails,
-        success: false
+        success: false,
+        errorType: typeof error,
+        timestamp: new Date().toISOString()
       },
       { status: 500 }
     );

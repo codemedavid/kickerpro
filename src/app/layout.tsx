@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { BulkSendIndicator } from "@/components/BulkSendIndicator";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Facebook Bulk Messenger - Manage Your Facebook Page Messages",
@@ -19,7 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className="font-sans antialiased">
         <QueryProvider>
           {children}
           <Toaster />

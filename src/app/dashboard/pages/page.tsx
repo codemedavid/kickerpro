@@ -2,9 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Facebook, Plus, Trash2, Users, TrendingUp, CheckCircle, Loader2 } from 'lucide-react';
+import { Facebook, Plus, Trash2, Users, TrendingUp, CheckCircle, Loader2, Search, X } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -64,6 +65,7 @@ export default function FacebookPagesPage() {
   const [availablePages, setAvailablePages] = useState<FacebookPageFromAPI[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
   const [isFetchingPages, setIsFetchingPages] = useState(false);
+  const [pageSearchQuery, setPageSearchQuery] = useState('');
 
   const { data: pages = [], isLoading } = useQuery<FacebookPage[]>({
     queryKey: ['pages', user?.id],
@@ -399,7 +401,10 @@ export default function FacebookPagesPage() {
       </Card>
 
       {/* Connect Pages Dialog */}
-      <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
+      <Dialog open={connectDialogOpen} onOpenChange={(open) => {
+        setConnectDialogOpen(open);
+        if (!open) setPageSearchQuery(''); // Clear search on close
+      }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Connect Facebook Pages</DialogTitle>
@@ -408,13 +413,50 @@ export default function FacebookPagesPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Search Bar for Pages */}
+          {availablePages.length > 0 && (
+            <div className="flex gap-2 items-center mt-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={pageSearchQuery}
+                  onChange={(e) => setPageSearchQuery(e.target.value)}
+                  placeholder="🔍 Search Facebook pages by name..."
+                  className="pl-10"
+                />
+              </div>
+              {pageSearchQuery && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPageSearchQuery('')}
+                  >
+                    <X className="mr-1 w-4 h-4" />
+                    Clear
+                  </Button>
+                  <Badge variant="secondary" className="px-3">
+                    {availablePages.filter(p => 
+                      p.name.toLowerCase().includes(pageSearchQuery.toLowerCase())
+                    ).length} found
+                  </Badge>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="space-y-3 mt-4">
             {availablePages.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No pages available</p>
               </div>
             ) : (
-              availablePages.map((page) => {
+              availablePages
+                .filter(page => 
+                  !pageSearchQuery || 
+                  page.name.toLowerCase().includes(pageSearchQuery.toLowerCase())
+                )
+                .map((page) => {
                 const isSelected = selectedPageIds.has(page.id);
                 const isAlreadyConnected = pages.some(p => p.facebook_page_id === page.id);
 

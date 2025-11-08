@@ -22,8 +22,9 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-    // Allow up to 2000 limit for bulk selection (MAX_SELECTABLE_CONTACTS)
-    const limit = Math.min(2000, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    // Unlimited bulk selection - use requested limit or default to 20
+    const requestedLimit = parseInt(searchParams.get('limit') || '20');
+    const limit = Math.max(1, requestedLimit); // At least 1, but no upper cap
     const offset = (page - 1) * limit;
 
     console.log('[Conversations API] Request params:', {
