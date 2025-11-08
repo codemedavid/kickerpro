@@ -8,8 +8,5 @@
       "path": "/api/cron/ai-automations",
       "schedule": "*/15 * * * *"
     }
-  ],
-  "env": {
-    "CRON_SECRET": "@cron-secret"
-  }
+  ]
 }
