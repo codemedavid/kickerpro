@@ -284,7 +284,7 @@ export default function ConversationsPage() {
       setLastSyncSummary({
         inserted: data.inserted ?? 0,
         updated: data.updated ?? 0,
-        total: data.synced ?? 0,
+        total: (data.inserted ?? 0) + (data.updated ?? 0),
         timestamp: new Date().toISOString(),
         pageId: variables.facebookPageId,
         pageName
@@ -292,7 +292,7 @@ export default function ConversationsPage() {
 
       toast({
         title: "Sync Complete!",
-        description: `Synced ${data.synced} conversation(s) from Facebook`
+        description: `Synced ${(data.inserted ?? 0) + (data.updated ?? 0)} conversation(s) from Facebook`
       });
     },
     onError: (error) => {

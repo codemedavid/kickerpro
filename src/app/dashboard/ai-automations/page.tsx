@@ -162,6 +162,9 @@ export default function AIAutomationsPage() {
         max_messages_per_day: 100,
         active_hours_start: 9,
         active_hours_end: 21,
+        active_hours_start_minutes: 0,
+        active_hours_end_minutes: 0,
+        run_24_7: false,
         include_tag_ids: [],
         exclude_tag_ids: []
       });
@@ -319,17 +322,24 @@ export default function AIAutomationsPage() {
       name: '',
       description: '',
       enabled: true,
-      time_interval_minutes: 60,
+      time_interval_minutes: null,
+      time_interval_hours: 24,
+      time_interval_days: null,
+      max_follow_ups: null,
+      follow_up_sequence: null,
+      stop_on_reply: true,
+      remove_tag_on_reply: null,
+      custom_prompt: '',
+      language_style: 'taglish',
+      message_tag: 'ACCOUNT_UPDATE',
+      max_messages_per_day: 100,
       active_hours_start: 9,
-      active_hours_start_minutes: 0,
       active_hours_end: 21,
+      active_hours_start_minutes: 0,
       active_hours_end_minutes: 0,
       run_24_7: false,
-      max_messages_per_day: 100,
-      ai_prompt_template: '',
       include_tag_ids: [],
-      exclude_tag_ids: [],
-      max_follow_ups: 3
+      exclude_tag_ids: []
     });
   };
 
@@ -341,16 +351,23 @@ export default function AIAutomationsPage() {
       description: rule.description || '',
       enabled: rule.enabled,
       time_interval_minutes: rule.time_interval_minutes,
-      active_hours_start: rule.active_hours_start || 9,
-      active_hours_start_minutes: rule.active_hours_start_minutes || 0,
-      active_hours_end: rule.active_hours_end || 21,
-      active_hours_end_minutes: rule.active_hours_end_minutes || 0,
-      run_24_7: rule.run_24_7 || false,
+      time_interval_hours: rule.time_interval_hours,
+      time_interval_days: rule.time_interval_days,
+      max_follow_ups: rule.max_follow_ups,
+      follow_up_sequence: rule.follow_up_sequence,
+      stop_on_reply: rule.stop_on_reply,
+      remove_tag_on_reply: rule.remove_tag_on_reply,
+      custom_prompt: rule.custom_prompt || '',
+      language_style: rule.language_style || 'taglish',
+      message_tag: rule.message_tag || 'ACCOUNT_UPDATE',
       max_messages_per_day: rule.max_messages_per_day || 100,
-      ai_prompt_template: rule.ai_prompt_template || '',
+      active_hours_start: rule.active_hours_start || 9,
+      active_hours_end: rule.active_hours_end || 21,
+      active_hours_start_minutes: 0,
+      active_hours_end_minutes: 0,
+      run_24_7: false,
       include_tag_ids: rule.include_tag_ids || [],
-      exclude_tag_ids: rule.exclude_tag_ids || [],
-      max_follow_ups: rule.max_follow_ups || 3
+      exclude_tag_ids: rule.exclude_tag_ids || []
     });
     setIsEditDialogOpen(true);
   };
@@ -975,8 +992,8 @@ Ask if they're still interested."
                   <label className="text-sm font-medium">AI Prompt Template</label>
                   <textarea
                     className="w-full min-h-[100px] p-2 border rounded-md"
-                    value={formData.ai_prompt_template}
-                    onChange={(e) => setFormData({ ...formData, ai_prompt_template: e.target.value })}
+                    value={formData.custom_prompt}
+                    onChange={(e) => setFormData({ ...formData, custom_prompt: e.target.value })}
                     placeholder="Write a personalized follow-up message..."
                   />
                 </div>
@@ -985,8 +1002,8 @@ Ask if they're still interested."
                   <label className="text-sm font-medium">Max Follow-ups</label>
                   <Input
                     type="number"
-                    value={formData.max_follow_ups}
-                    onChange={(e) => setFormData({ ...formData, max_follow_ups: parseInt(e.target.value) })}
+                    value={formData.max_follow_ups || ''}
+                    onChange={(e) => setFormData({ ...formData, max_follow_ups: e.target.value ? parseInt(e.target.value) : null })}
                     min="1"
                     max="10"
                   />
@@ -1000,18 +1017,16 @@ Ask if they're still interested."
                 <div>
                   <label className="text-sm font-medium text-green-700">Include Tags (must have ALL)</label>
                   <TagSelector
-                    value={formData.include_tag_ids}
-                    onChange={(tags) => setFormData({ ...formData, include_tag_ids: tags })}
-                    placeholder="Select tags to include..."
+                    selectedTagIds={formData.include_tag_ids}
+                    onTagChange={(tagIds) => setFormData({ ...formData, include_tag_ids: tagIds })}
                   />
                 </div>
 
                 <div>
                   <label className="text-sm font-medium text-red-700">Exclude Tags (must NOT have ANY)</label>
                   <TagSelector
-                    value={formData.exclude_tag_ids}
-                    onChange={(tags) => setFormData({ ...formData, exclude_tag_ids: tags })}
-                    placeholder="Select tags to exclude..."
+                    selectedTagIds={formData.exclude_tag_ids}
+                    onTagChange={(tagIds) => setFormData({ ...formData, exclude_tag_ids: tagIds })}
                   />
                 </div>
 
