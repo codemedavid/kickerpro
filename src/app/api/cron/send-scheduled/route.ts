@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Cron job endpoint for sending scheduled messages
@@ -32,7 +32,28 @@ export async function GET(request: NextRequest) {
     console.log('[Cron Send Scheduled] ⏰ Starting scheduled message check at', currentTime.toISOString());
     console.log('[Cron Send Scheduled] Local time:', currentTime.toLocaleString());
     
-    const supabase = await createClient();
+    // Create Supabase admin client using service role key (bypasses RLS)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !serviceKey) {
+      console.error('[Cron Send Scheduled] Missing Supabase configuration');
+      return NextResponse.json({ 
+        error: 'Supabase configuration missing',
+        message: 'NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set' 
+      }, { status: 500 });
+    }
+
+    const supabase = createSupabaseClient(
+      supabaseUrl,
+      serviceKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
 
     // Find all due scheduled messages (any user)
     const nowIso = currentTime.toISOString();

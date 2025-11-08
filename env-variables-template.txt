@@ -1,0 +1,19 @@
+# Copy these environment variables to Vercel
+# Dashboard → Settings → Environment Variables → Add New
+
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+
+# Facebook App Configuration
+NEXT_PUBLIC_FACEBOOK_APP_ID=your_facebook_app_id_here
+FACEBOOK_APP_SECRET=your_facebook_app_secret_here
+
+# OpenAI API Key
+OPENAI_API_KEY=your_openai_api_key_here
+
+# IMPORTANT: Add this AFTER first successful deployment!
+# Then redeploy for cron jobs to work
+CRON_SECRET=UUpEfsYtXuHrB4evzG5/BHOoQdwc0OUn6/IvPO7k05U=
+
