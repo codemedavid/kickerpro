@@ -15,7 +15,7 @@ export async function middleware(request: NextRequest) {
     console.warn('[Middleware] Supabase not configured - allowing all access')
     return NextResponse.next()
   }
-  let supabaseResponse = NextResponse.next({
+  const supabaseResponse = NextResponse.next({
     request,
   })
   // For now, allow all access - simplified auth without Supabase Auth

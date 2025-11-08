@@ -25,7 +25,7 @@ export async function GET() {
     }
 
     // Test the access token
-    let tokenTest = { valid: false, error: null, pages: 0 };
+    const tokenTest = { valid: false, error: null, pages: 0 };
     const tokenToTest = fbAccessTokenCookie || dbUser?.facebook_access_token;
     
     if (tokenToTest) {
