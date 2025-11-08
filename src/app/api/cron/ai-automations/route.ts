@@ -235,17 +235,23 @@ export async function GET(request: NextRequest) {
               ruleMessagesProcessed++;
               console.log(`      Processing: ${conv.sender_name || conv.sender_id}`);
 
-              // Check if already processed in last 24 hours
+              // Check if already processed within the rule's time interval
+              // Use the same time threshold calculation as for finding eligible conversations
+              const cooldownMs = totalMinutes * 60 * 1000;
               const { data: recentExecution } = await supabase
                 .from('ai_automation_executions')
-                .select('id')
+                .select('id, created_at')
                 .eq('rule_id', rule.id)
                 .eq('conversation_id', conv.id)
-                .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+                .gte('created_at', new Date(Date.now() - cooldownMs).toISOString())
+                .order('created_at', { ascending: false })
+                .limit(1)
                 .single();
 
               if (recentExecution) {
-                console.log(`      ⏭️  Skipped - already processed recently`);
+                const timeSinceExecution = Date.now() - new Date(recentExecution.created_at).getTime();
+                const minutesSince = Math.floor(timeSinceExecution / 60000);
+                console.log(`      ⏭️  Skipped - already processed ${minutesSince} minutes ago (interval: ${totalMinutes} minutes)`);
                 continue;
               }
 
