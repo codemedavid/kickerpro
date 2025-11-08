@@ -245,15 +245,10 @@ export async function GET(request: NextRequest) {
                         conversationId: senderId,
                         participantName: conversation?.sender_name || 'Customer',
                         messages: messages.map(m => ({
-                          text: m.message_text || '',
-                          timestamp: m.timestamp,
-                          isFromPage: m.is_from_page,
-                          senderId: m.sender_id
-                        })),
-                        metadata: {
-                          pageId: page.facebook_page_id,
-                          tags: conversation?.conversation_tags || []
-                        }
+                          from: m.is_from_page ? 'page' : conversation?.sender_name || 'Customer',
+                          message: m.message_text || '',
+                          timestamp: m.timestamp || new Date().toISOString()
+                        }))
                       });
                     }
 
