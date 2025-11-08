@@ -481,6 +481,7 @@ If ANY NO → REWRITE until ALL YES`;
             const { data: message, error: messageError } = await supabase
               .from('messages')
               .insert({
+                title: `AI Auto: ${rule.name} - ${conv.sender_name || 'Follow-up'}`,
                 user_id: userId,
                 page_id: page.id,
                 content: generated.generatedMessage,
