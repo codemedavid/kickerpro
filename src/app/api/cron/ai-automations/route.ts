@@ -13,7 +13,7 @@ import { openRouterService } from '@/lib/ai/openrouter';
  * {
  *   "crons": [{
  *     "path": "/api/cron/ai-automations",
- *     "schedule": "*/15 * * * *"  // Every 15 minutes
+ *     "schedule": "every 15 minutes"
  *   }]
  * }
  */
