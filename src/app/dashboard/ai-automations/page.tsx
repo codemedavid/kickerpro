@@ -363,9 +363,9 @@ export default function AIAutomationsPage() {
       max_messages_per_day: rule.max_messages_per_day || 100,
       active_hours_start: rule.active_hours_start || 9,
       active_hours_end: rule.active_hours_end || 21,
-      active_hours_start_minutes: 0,
-      active_hours_end_minutes: 0,
-      run_24_7: false,
+      active_hours_start_minutes: rule.active_hours_start_minutes || 0,
+      active_hours_end_minutes: rule.active_hours_end_minutes || 0,
+      run_24_7: rule.run_24_7 || false,
       include_tag_ids: rule.include_tag_ids || [],
       exclude_tag_ids: rule.exclude_tag_ids || []
     });

@@ -75,6 +75,9 @@ export async function POST(request: NextRequest) {
       max_messages_per_day = 100,
       active_hours_start = 9,
       active_hours_end = 21,
+      active_hours_start_minutes = 0,
+      active_hours_end_minutes = 0,
+      run_24_7 = false,
       max_follow_ups,
       follow_up_sequence,
       stop_on_reply,
@@ -134,6 +137,9 @@ export async function POST(request: NextRequest) {
       max_messages_per_day,
       active_hours_start,
       active_hours_end,
+      active_hours_start_minutes,
+      active_hours_end_minutes,
+      run_24_7,
       include_tag_ids: include_tag_ids || [],
       exclude_tag_ids: exclude_tag_ids || []
     };

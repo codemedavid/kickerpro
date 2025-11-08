@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
     for (const rule of rules) {
       try {
         console.log(`[AI Automation Trigger] Processing rule: ${rule.name}`);
+        console.log(`[AI Automation Trigger] Rule config - message_tag: ${rule.message_tag || 'NOT SET (will use ACCOUNT_UPDATE)'}`);
 
         // Check if within active hours
         const currentHour = new Date().getHours();
@@ -482,7 +483,7 @@ If ANY NO → REWRITE until ALL YES`;
                 recipient_type: 'selected',
                 selected_recipients: [conv.sender_id],
                 recipient_count: 1,
-                message_tag: rule.message_tag, // Auto-select ACCOUNT_UPDATE
+                message_tag: rule.message_tag || 'ACCOUNT_UPDATE', // Default to ACCOUNT_UPDATE
                 batch_size: 1,
                 scheduled_for: new Date().toISOString() // Send immediately
               })
@@ -522,6 +523,9 @@ If ANY NO → REWRITE until ALL YES`;
             }
 
             // Send immediately via Facebook API
+            const messageTag = rule.message_tag || 'ACCOUNT_UPDATE';
+            console.log(`[AI Automation Trigger] Sending message with tag: ${messageTag} to ${conv.sender_name}`);
+            
             const sendResponse = await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${page.access_token}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -529,7 +533,7 @@ If ANY NO → REWRITE until ALL YES`;
                 recipient: { id: conv.sender_id },
                 message: { text: generated.generatedMessage },
                 messaging_type: 'MESSAGE_TAG',
-                tag: rule.message_tag
+                tag: messageTag
               })
             });
 

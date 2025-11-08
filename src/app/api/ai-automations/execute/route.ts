@@ -47,6 +47,9 @@ export async function POST() {
     // Process each rule
     for (const rule of rules) {
       try {
+        console.log(`[AI Automation Execute] Processing rule: ${rule.name}`);
+        console.log(`[AI Automation Execute] Rule config - message_tag: ${rule.message_tag || 'NOT SET (will use ACCOUNT_UPDATE)'}`);
+        
         // Check if within active hours (unless 24/7 mode)
         if (!rule.run_24_7) {
           const now = new Date();
@@ -236,6 +239,9 @@ export async function POST() {
 
             // Send the message via Facebook API
             try {
+              const messageTag = rule.message_tag || 'ACCOUNT_UPDATE';
+              console.log(`[AI Automation Execute] Sending message with tag: ${messageTag} to ${conv.sender_name}`);
+              
               const sendUrl = `https://graph.facebook.com/v18.0/me/messages?access_token=${page.access_token}`;
               const sendResponse = await fetch(sendUrl, {
                 method: 'POST',
@@ -243,8 +249,8 @@ export async function POST() {
                 body: JSON.stringify({
                   recipient: { id: conv.sender_id },
                   message: { text: generated.generatedMessage },
-                  messaging_type: rule.message_tag || 'MESSAGE_TAG',
-                  tag: rule.message_tag || 'ACCOUNT_UPDATE'
+                  messaging_type: 'MESSAGE_TAG',
+                  tag: messageTag
                 })
               });
 
