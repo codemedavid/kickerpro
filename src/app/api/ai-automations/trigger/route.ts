@@ -274,11 +274,14 @@ export async function POST(request: NextRequest) {
             errors: [] as Array<{ conversation_id: string; error: string }>
         };
 
+        // Store state IDs for tracking
+        const stateIdMap = new Map<string, string>();
+
         // Process each conversation
         for (const conv of conversationsToProcess) {
           try {
             // Create monitoring state entry - QUEUED
-            await supabase
+            const { data: stateRecord } = await supabase
               .from('ai_automation_contact_states')
               .insert({
                 rule_id: rule.id,
@@ -292,11 +295,15 @@ export async function POST(request: NextRequest) {
               })
               .select()
               .single()
-              .then(({ data: stateRecord }) => {
-                // Store state ID for updates
-                conv.stateId = stateRecord?.id;
-              })
-              .catch(err => console.warn('[Monitor] Could not create state entry:', err));
+              .catch(err => {
+                console.warn('[Monitor] Could not create state entry:', err);
+                return { data: null };
+              });
+
+            // Store state ID for updates
+            if (stateRecord?.id) {
+              stateIdMap.set(conv.id, stateRecord.id);
+            }
 
             // Get page access token
             const { data: page } = await supabase
@@ -308,7 +315,8 @@ export async function POST(request: NextRequest) {
             if (!page) {
               console.error(`[AI Automation Trigger] No page found for conversation ${conv.id}`);
               // Update monitoring state - FAILED
-              if (conv.stateId) {
+              const stateId = stateIdMap.get(conv.id);
+              if (stateId) {
                 await supabase
                   .from('ai_automation_contact_states')
                   .update({
@@ -316,7 +324,7 @@ export async function POST(request: NextRequest) {
                     status_message: 'Page not found',
                     error_message: 'Facebook page configuration missing'
                   })
-                  .eq('id', conv.stateId);
+                  .eq('id', stateId);
               }
               continue;
             }
@@ -427,7 +435,8 @@ If ANY NO → REWRITE until ALL YES`;
 
             // Update monitoring state - GENERATING
             const generationStartTime = Date.now();
-            if (conv.stateId) {
+            const stateId = stateIdMap.get(conv.id);
+            if (stateId) {
               await supabase
                 .from('ai_automation_contact_states')
                 .update({
@@ -435,7 +444,7 @@ If ANY NO → REWRITE until ALL YES`;
                   status_message: `AI generating follow-up #${currentFollowUpNumber}...`,
                   last_stage_change_at: new Date().toISOString()
                 })
-                .eq('id', conv.stateId);
+                .eq('id', stateId);
             }
 
             // Generate AI message
@@ -448,7 +457,7 @@ If ANY NO → REWRITE until ALL YES`;
             const generationTimeMs = Date.now() - generationStartTime;
 
             // Update monitoring state - READY TO SEND
-            if (conv.stateId) {
+            if (stateId) {
               await supabase
                 .from('ai_automation_contact_states')
                 .update({
@@ -458,7 +467,7 @@ If ANY NO → REWRITE until ALL YES`;
                   generation_time_ms: generationTimeMs,
                   last_stage_change_at: new Date().toISOString()
                 })
-                .eq('id', conv.stateId);
+                .eq('id', stateId);
             }
 
             // Create message record for sending
@@ -482,7 +491,7 @@ If ANY NO → REWRITE until ALL YES`;
             if (messageError) {
               console.error(`[AI Automation Trigger] Error creating message:`, messageError);
               // Update monitoring state - FAILED
-              if (conv.stateId) {
+              if (stateId) {
                 await supabase
                   .from('ai_automation_contact_states')
                   .update({
@@ -490,7 +499,7 @@ If ANY NO → REWRITE until ALL YES`;
                     status_message: 'Failed to create message record',
                     error_message: messageError.message || 'Database error'
                   })
-                  .eq('id', conv.stateId);
+                  .eq('id', stateId);
               }
               ruleResult.errors.push({
                 conversation_id: conv.id,
@@ -500,7 +509,7 @@ If ANY NO → REWRITE until ALL YES`;
             }
 
             // Update monitoring state - SENDING
-            if (conv.stateId) {
+            if (stateId) {
               await supabase
                 .from('ai_automation_contact_states')
                 .update({
@@ -508,7 +517,7 @@ If ANY NO → REWRITE until ALL YES`;
                   status_message: 'Sending via Facebook API...',
                   last_stage_change_at: new Date().toISOString()
                 })
-                .eq('id', conv.stateId);
+                .eq('id', stateId);
             }
 
             // Send immediately via Facebook API
@@ -527,7 +536,7 @@ If ANY NO → REWRITE until ALL YES`;
 
             if (sendResponse.ok) {
               // Update monitoring state - SENT
-              if (conv.stateId) {
+              if (stateId) {
                 await supabase
                   .from('ai_automation_contact_states')
                   .update({
@@ -535,7 +544,7 @@ If ANY NO → REWRITE until ALL YES`;
                     status_message: 'Successfully delivered',
                     last_stage_change_at: new Date().toISOString()
                   })
-                  .eq('id', conv.stateId);
+                  .eq('id', stateId);
               }
 
               // Update execution record with follow-up number and previous messages
@@ -584,7 +593,7 @@ If ANY NO → REWRITE until ALL YES`;
 
               // Mark as completed if this was the last follow-up
               if (rule.max_follow_ups && currentFollowUpNumber >= rule.max_follow_ups) {
-                if (conv.stateId) {
+                if (stateId) {
                   await supabase
                     .from('ai_automation_contact_states')
                     .update({
@@ -592,14 +601,14 @@ If ANY NO → REWRITE until ALL YES`;
                       status_message: `All ${rule.max_follow_ups} follow-ups sent`,
                       last_stage_change_at: new Date().toISOString()
                     })
-                    .eq('id', conv.stateId);
+                    .eq('id', stateId);
                 }
               }
 
               console.log(`[AI Automation Trigger] ✅ Sent message to ${conv.sender_name}`);
             } else {
               // Update monitoring state - FAILED
-              if (conv.stateId) {
+              if (stateId) {
                 await supabase
                   .from('ai_automation_contact_states')
                   .update({
@@ -608,7 +617,7 @@ If ANY NO → REWRITE until ALL YES`;
                     error_message: sendData.error?.message || 'Unknown Facebook API error',
                     last_stage_change_at: new Date().toISOString()
                   })
-                  .eq('id', conv.stateId);
+                  .eq('id', stateId);
               }
 
               console.error(`[AI Automation Trigger] Facebook API error:`, sendData);
@@ -622,7 +631,8 @@ If ANY NO → REWRITE until ALL YES`;
             console.error(`[AI Automation Trigger] Error processing conversation ${conv.id}:`, convError);
             
             // Update monitoring state - FAILED
-            if (conv.stateId) {
+            const stateId = stateIdMap.get(conv.id);
+            if (stateId) {
               await supabase
                 .from('ai_automation_contact_states')
                 .update({
@@ -631,7 +641,7 @@ If ANY NO → REWRITE until ALL YES`;
                   error_message: convError instanceof Error ? convError.message : 'Unknown error',
                   last_stage_change_at: new Date().toISOString()
                 })
-                .eq('id', conv.stateId);
+                .eq('id', stateId);
             }
 
             ruleResult.errors.push({
