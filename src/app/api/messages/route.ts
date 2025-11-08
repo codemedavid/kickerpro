@@ -118,41 +118,57 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // Prepare message data
-    const messageData: {
-      title: string;
-      content: string;
-      page_id: string;
-      created_by: string;
-      recipient_type: string;
-      recipient_count: number;
-      status: string;
-      scheduled_for: string | null;
-      message_tag: string | null;
-      selected_recipients?: string[];
-      selected_contacts_data?: Array<{ sender_id: string; sender_name: string | null }>;
-      media_attachments?: Array<{
-        url: string;
-        filename: string;
-        type: string;
-        size?: number;
-      }>;
-      auto_fetch_enabled?: boolean;
-      auto_fetch_page_id?: string | null;
-      include_tag_ids?: string[];
-      exclude_tag_ids?: string[];
-      use_ai_bulk_send?: boolean;
-      ai_messages_map?: Record<string, string>;
-    } = {
-      title,
-      content,
-      page_id,
-      created_by: userId,
-      recipient_type: recipient_type || 'all',
-      recipient_count: recipient_count || 0,
-      status: status || 'draft',
-      scheduled_for: scheduled_for || null,
-      message_tag: message_tag || null,
-    };
+  // Log incoming scheduled_for value for debugging
+  if (status === 'scheduled') {
+    console.log('[Messages API] 🔍 Scheduled message data:');
+    console.log('[Messages API]   - status:', status);
+    console.log('[Messages API]   - scheduled_for from request:', scheduled_for);
+    console.log('[Messages API]   - scheduled_for type:', typeof scheduled_for);
+    console.log('[Messages API]   - scheduled_for is null?:', scheduled_for === null);
+    console.log('[Messages API]   - scheduled_for is undefined?:', scheduled_for === undefined);
+  }
+
+  const messageData: {
+    title: string;
+    content: string;
+    page_id: string;
+    created_by: string;
+    recipient_type: string;
+    recipient_count: number;
+    status: string;
+    scheduled_for: string | null;
+    message_tag: string | null;
+    selected_recipients?: string[];
+    selected_contacts_data?: Array<{ sender_id: string; sender_name: string | null }>;
+    media_attachments?: Array<{
+      url: string;
+      filename: string;
+      type: string;
+      size?: number;
+    }>;
+    auto_fetch_enabled?: boolean;
+    auto_fetch_page_id?: string | null;
+    include_tag_ids?: string[];
+    exclude_tag_ids?: string[];
+    use_ai_bulk_send?: boolean;
+    ai_messages_map?: Record<string, string>;
+  } = {
+    title,
+    content,
+    page_id,
+    created_by: userId,
+    recipient_type: recipient_type || 'all',
+    recipient_count: recipient_count || 0,
+    status: status || 'draft',
+    scheduled_for: scheduled_for || null,
+    message_tag: message_tag || null,
+  };
+
+  console.log('[Messages API] 📝 Message data being saved:', {
+    title: messageData.title,
+    status: messageData.status,
+    scheduled_for: messageData.scheduled_for
+  });
 
     // Add auto-fetch and tag filtering for scheduled messages
     if (status === 'scheduled' && auto_fetch_enabled) {
