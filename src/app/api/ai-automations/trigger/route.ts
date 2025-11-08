@@ -489,8 +489,7 @@ If ANY NO → REWRITE until ALL YES`;
                 recipient_type: 'selected',
                 selected_recipients: [conv.sender_id],
                 recipient_count: 1,
-                message_tag: rule.message_tag || 'ACCOUNT_UPDATE', // Default to ACCOUNT_UPDATE
-                batch_size: 1,
+                message_tag: rule.message_tag || 'ACCOUNT_UPDATE',
                 scheduled_for: new Date().toISOString() // Send immediately
               })
               .select()
