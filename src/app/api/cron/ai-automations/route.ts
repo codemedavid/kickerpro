@@ -276,18 +276,16 @@ export async function GET(request: NextRequest) {
                 .order('timestamp', { ascending: false })
                 .limit(20);
 
-              // Build context for AI
+              // Build context for AI (matching ConversationContext interface)
               const context = {
-                sender_name: conv.sender_name || 'Customer',
-                sender_id: conv.sender_id,
-                page_name: page.page_name,
-                last_message_time: conv.last_message_time,
-                message_count: conv.message_count,
-                conversation_history: (messages || []).map(m => ({
-                  text: m.message_text,
-                  sender: m.from_user ? 'page' : 'customer',
-                  timestamp: m.timestamp
-                }))
+                conversationId: conv.id,
+                participantName: conv.sender_name || 'Customer',
+                messages: (messages || []).map(m => ({
+                  from: m.from_user ? 'business' : 'user',
+                  message: m.message_text || '',
+                  timestamp: m.timestamp || new Date().toISOString()
+                })),
+                isFallback: !messages || messages.length === 0
               };
 
               // Get previous AI messages to ensure uniqueness
