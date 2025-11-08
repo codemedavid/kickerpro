@@ -63,7 +63,35 @@ export async function GET(request: NextRequest) {
 
     // Find all due scheduled messages (any user)
     const nowIso = currentTime.toISOString();
-    console.log('[Cron Send Scheduled] Looking for messages scheduled_for <=', nowIso);
+    console.log('[Cron Send Scheduled] 🔍 Current time (UTC):', nowIso);
+    console.log('[Cron Send Scheduled] 🔍 Current time (Local):', currentTime.toLocaleString());
+    
+    // First, check ALL scheduled messages (for debugging)
+    const { data: allScheduled } = await supabase
+      .from('messages')
+      .select('id, title, scheduled_for, status, created_at')
+      .eq('status', 'scheduled')
+      .order('scheduled_for', { ascending: true });
+    
+    console.log(`[Cron Send Scheduled] 📊 Total scheduled messages in database: ${allScheduled?.length || 0}`);
+    
+    if (allScheduled && allScheduled.length > 0) {
+      console.log('[Cron Send Scheduled] 📋 Scheduled messages details:');
+      allScheduled.forEach((msg, index) => {
+        const msgTime = new Date(msg.scheduled_for);
+        const diff = msgTime.getTime() - currentTime.getTime();
+        const minutesUntil = Math.floor(diff / 60000);
+        const isPastDue = diff <= 0;
+        
+        console.log(`[Cron Send Scheduled]   ${index + 1}. "${msg.title}"`);
+        console.log(`[Cron Send Scheduled]      - Scheduled for: ${msg.scheduled_for} (${msgTime.toLocaleString()})`);
+        console.log(`[Cron Send Scheduled]      - Created: ${msg.created_at}`);
+        console.log(`[Cron Send Scheduled]      - Status: ${isPastDue ? '✅ PAST DUE - Should send!' : `⏰ Future - sends in ${minutesUntil} minutes`}`);
+        console.log(`[Cron Send Scheduled]      - Time difference: ${minutesUntil} minutes`);
+      });
+    }
+    
+    console.log('[Cron Send Scheduled] 🔎 Querying for messages with scheduled_for <=', nowIso);
     
     const { data: dueMessages, error: queryError } = await supabase
       .from('messages')
@@ -74,19 +102,26 @@ export async function GET(request: NextRequest) {
       .limit(10); // Process max 10 per run
 
     if (queryError) {
-      console.error('[Cron Send Scheduled] Query error:', queryError);
+      console.error('[Cron Send Scheduled] ❌ Query error:', queryError);
       return NextResponse.json({ 
         error: queryError.message,
         success: false 
       }, { status: 500 });
     }
 
+    console.log(`[Cron Send Scheduled] 🎯 Messages due for sending RIGHT NOW: ${dueMessages?.length || 0}`);
+
     if (!dueMessages || dueMessages.length === 0) {
-      console.log('[Cron Send Scheduled] No messages due for sending');
+      if (allScheduled && allScheduled.length > 0) {
+        console.log('[Cron Send Scheduled] ⏰ No messages due yet, but', allScheduled.length, 'scheduled message(s) waiting');
+      } else {
+        console.log('[Cron Send Scheduled] ℹ️  No scheduled messages in database at all');
+      }
       return NextResponse.json({ 
         success: true, 
         dispatched: 0,
-        message: 'No messages due'
+        message: 'No messages due',
+        totalScheduled: allScheduled?.length || 0
       });
     }
 
