@@ -62,18 +62,23 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`[AI Automation Trigger] Processing rule: ${rule.name}`);
         console.log(`[AI Automation Trigger] Rule config - message_tag: ${rule.message_tag || 'NOT SET (will use ACCOUNT_UPDATE)'}`);
+        console.log(`[AI Automation Trigger] Rule config - run_24_7: ${rule.run_24_7 ? 'YES (24/7 mode)' : 'NO'}`);
 
-        // Check if within active hours
-        const currentHour = new Date().getHours();
-        if (currentHour < rule.active_hours_start || currentHour >= rule.active_hours_end) {
-          console.log(`[AI Automation Trigger] Rule ${rule.name} skipped - outside active hours`);
-          results.push({
-            rule_id: rule.id,
-            rule_name: rule.name,
-            status: 'skipped',
-            reason: 'Outside active hours'
-          });
-          continue;
+        // Check if within active hours (unless 24/7 mode)
+        if (!rule.run_24_7) {
+          const currentHour = new Date().getHours();
+          if (currentHour < rule.active_hours_start || currentHour >= rule.active_hours_end) {
+            console.log(`[AI Automation Trigger] Rule ${rule.name} skipped - outside active hours (current: ${currentHour}, allowed: ${rule.active_hours_start}-${rule.active_hours_end})`);
+            results.push({
+              rule_id: rule.id,
+              rule_name: rule.name,
+              status: 'skipped',
+              reason: 'Outside active hours'
+            });
+            continue;
+          }
+        } else {
+          console.log(`[AI Automation Trigger] Rule ${rule.name} running in 24/7 mode - skipping hour check`);
         }
 
         // Check daily limit
