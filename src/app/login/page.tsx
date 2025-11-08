@@ -35,6 +35,7 @@ declare global {
   }
 }
 
+//login 
 export default function LoginPage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
