@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
-
 /**
  * Debug send - shows EVERY step of message sending
  * GET /api/messages/debug-send
@@ -19,7 +18,6 @@ export async function GET(_request: NextRequest) {
       timestamp: new Date().toISOString()
     });
   };
-
   try {
     addLog('START', 'info', 'Starting debug send test');
 
