@@ -277,6 +277,27 @@ export async function POST(request: NextRequest) {
         // Process each conversation
         for (const conv of conversationsToProcess) {
           try {
+            // Create monitoring state entry - QUEUED
+            await supabase
+              .from('ai_automation_contact_states')
+              .insert({
+                rule_id: rule.id,
+                conversation_id: conv.id,
+                sender_id: conv.sender_id,
+                sender_name: conv.sender_name || 'Customer',
+                current_stage: 'queued',
+                status_message: 'Added to processing queue',
+                max_follow_ups: rule.max_follow_ups || 0,
+                follow_up_count: followUpCountMap.get(conv.id) || 0
+              })
+              .select()
+              .single()
+              .then(({ data: stateRecord }) => {
+                // Store state ID for updates
+                conv.stateId = stateRecord?.id;
+              })
+              .catch(err => console.warn('[Monitor] Could not create state entry:', err));
+
             // Get page access token
             const { data: page } = await supabase
               .from('facebook_pages')
@@ -286,6 +307,17 @@ export async function POST(request: NextRequest) {
 
             if (!page) {
               console.error(`[AI Automation Trigger] No page found for conversation ${conv.id}`);
+              // Update monitoring state - FAILED
+              if (conv.stateId) {
+                await supabase
+                  .from('ai_automation_contact_states')
+                  .update({
+                    current_stage: 'failed',
+                    status_message: 'Page not found',
+                    error_message: 'Facebook page configuration missing'
+                  })
+                  .eq('id', conv.stateId);
+              }
               continue;
             }
 
@@ -393,12 +425,41 @@ If ANY NO → REWRITE until ALL YES`;
 📝 This is FOLLOW-UP #${currentFollowUpNumber} (first automated message to this person)`;
             }
 
+            // Update monitoring state - GENERATING
+            const generationStartTime = Date.now();
+            if (conv.stateId) {
+              await supabase
+                .from('ai_automation_contact_states')
+                .update({
+                  current_stage: 'generating',
+                  status_message: `AI generating follow-up #${currentFollowUpNumber}...`,
+                  last_stage_change_at: new Date().toISOString()
+                })
+                .eq('id', conv.stateId);
+            }
+
             // Generate AI message
             console.log(`[AI Automation Trigger] Generating follow-up #${currentFollowUpNumber} for ${conv.sender_name}... (${previousMessages.length} previous)`);
             const generated = await openRouterService.generateFollowUpMessage(
               context,
               enhancedPrompt
             );
+
+            const generationTimeMs = Date.now() - generationStartTime;
+
+            // Update monitoring state - READY TO SEND
+            if (conv.stateId) {
+              await supabase
+                .from('ai_automation_contact_states')
+                .update({
+                  current_stage: 'ready_to_send',
+                  status_message: 'Message generated, preparing to send',
+                  generated_message: generated.generatedMessage,
+                  generation_time_ms: generationTimeMs,
+                  last_stage_change_at: new Date().toISOString()
+                })
+                .eq('id', conv.stateId);
+            }
 
             // Create message record for sending
             const { data: message, error: messageError } = await supabase
@@ -420,11 +481,34 @@ If ANY NO → REWRITE until ALL YES`;
 
             if (messageError) {
               console.error(`[AI Automation Trigger] Error creating message:`, messageError);
+              // Update monitoring state - FAILED
+              if (conv.stateId) {
+                await supabase
+                  .from('ai_automation_contact_states')
+                  .update({
+                    current_stage: 'failed',
+                    status_message: 'Failed to create message record',
+                    error_message: messageError.message || 'Database error'
+                  })
+                  .eq('id', conv.stateId);
+              }
               ruleResult.errors.push({
                 conversation_id: conv.id,
                 error: 'Failed to create message'
               });
               continue;
+            }
+
+            // Update monitoring state - SENDING
+            if (conv.stateId) {
+              await supabase
+                .from('ai_automation_contact_states')
+                .update({
+                  current_stage: 'sending',
+                  status_message: 'Sending via Facebook API...',
+                  last_stage_change_at: new Date().toISOString()
+                })
+                .eq('id', conv.stateId);
             }
 
             // Send immediately via Facebook API
@@ -442,6 +526,18 @@ If ANY NO → REWRITE until ALL YES`;
             const sendData = await sendResponse.json();
 
             if (sendResponse.ok) {
+              // Update monitoring state - SENT
+              if (conv.stateId) {
+                await supabase
+                  .from('ai_automation_contact_states')
+                  .update({
+                    current_stage: 'sent',
+                    status_message: 'Successfully delivered',
+                    last_stage_change_at: new Date().toISOString()
+                  })
+                  .eq('id', conv.stateId);
+              }
+
               // Update execution record with follow-up number and previous messages
               await supabase
                 .from('ai_automation_executions')
@@ -486,8 +582,35 @@ If ANY NO → REWRITE until ALL YES`;
               ruleResult.messages_generated++;
               ruleResult.messages_sent++;
 
+              // Mark as completed if this was the last follow-up
+              if (rule.max_follow_ups && currentFollowUpNumber >= rule.max_follow_ups) {
+                if (conv.stateId) {
+                  await supabase
+                    .from('ai_automation_contact_states')
+                    .update({
+                      current_stage: 'completed',
+                      status_message: `All ${rule.max_follow_ups} follow-ups sent`,
+                      last_stage_change_at: new Date().toISOString()
+                    })
+                    .eq('id', conv.stateId);
+                }
+              }
+
               console.log(`[AI Automation Trigger] ✅ Sent message to ${conv.sender_name}`);
             } else {
+              // Update monitoring state - FAILED
+              if (conv.stateId) {
+                await supabase
+                  .from('ai_automation_contact_states')
+                  .update({
+                    current_stage: 'failed',
+                    status_message: 'Failed to send via Facebook',
+                    error_message: sendData.error?.message || 'Unknown Facebook API error',
+                    last_stage_change_at: new Date().toISOString()
+                  })
+                  .eq('id', conv.stateId);
+              }
+
               console.error(`[AI Automation Trigger] Facebook API error:`, sendData);
               ruleResult.errors.push({
                 conversation_id: conv.id,
@@ -497,6 +620,20 @@ If ANY NO → REWRITE until ALL YES`;
 
           } catch (convError) {
             console.error(`[AI Automation Trigger] Error processing conversation ${conv.id}:`, convError);
+            
+            // Update monitoring state - FAILED
+            if (conv.stateId) {
+              await supabase
+                .from('ai_automation_contact_states')
+                .update({
+                  current_stage: 'failed',
+                  status_message: 'Unexpected error during processing',
+                  error_message: convError instanceof Error ? convError.message : 'Unknown error',
+                  last_stage_change_at: new Date().toISOString()
+                })
+                .eq('id', conv.stateId);
+            }
+
             ruleResult.errors.push({
               conversation_id: conv.id,
               error: convError instanceof Error ? convError.message : 'Unknown error'
