@@ -56,7 +56,7 @@ export async function GET(
 
         const sendUpdate = async () => {
           try {
-            // Get active contacts
+            // Get active contacts - handle missing table gracefully
             const { data: activeContacts, error: contactsError } = await supabase
               .from('active_automation_contacts')
               .select('*')
@@ -64,16 +64,34 @@ export async function GET(
               .order('updated_at', { ascending: false })
               .limit(100);
 
+            // Check if monitoring tables don't exist (PGRST205 = relation not found)
+            if (contactsError && contactsError.code === 'PGRST205') {
+              console.warn('[Monitor] Monitoring tables not set up. Run fix-ai-automation-monitoring.sql');
+              const setupUpdate = {
+                type: 'update',
+                timestamp: new Date().toISOString(),
+                monitoring_disabled: true,
+                message: 'Live monitoring not set up. Run fix-ai-automation-monitoring.sql in Supabase.',
+                contacts: [],
+                stageSummary: [],
+                stats: { total: 0, byStage: {} }
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(setupUpdate)}\n\n`));
+              return;
+            }
+
             if (contactsError) {
               console.error('[Monitor] Error fetching contacts:', contactsError);
               return;
             }
 
-            // Get stage summary
+            // Get stage summary - handle missing function gracefully
             const { data: stageSummary, error: summaryError } = await supabase
               .rpc('get_automation_stage_summary', { p_rule_id: ruleId });
 
-            if (summaryError) {
+            if (summaryError && summaryError.code === 'PGRST205') {
+              console.warn('[Monitor] Monitoring functions not set up.');
+            } else if (summaryError) {
               console.error('[Monitor] Error fetching summary:', summaryError);
             }
 
@@ -168,13 +186,25 @@ export async function POST(
       return NextResponse.json({ error: 'Rule not found' }, { status: 404 });
     }
 
-    // Get active contacts
-    const { data: activeContacts } = await supabase
+    // Get active contacts - handle missing table gracefully
+    const { data: activeContacts, error: contactsError } = await supabase
       .from('active_automation_contacts')
       .select('*')
       .eq('rule_id', ruleId)
       .order('updated_at', { ascending: false })
       .limit(100);
+
+    // Check if monitoring tables don't exist
+    if (contactsError && contactsError.code === 'PGRST205') {
+      return NextResponse.json({
+        rule,
+        monitoring_disabled: true,
+        message: 'Live monitoring not set up. Run fix-ai-automation-monitoring.sql in Supabase SQL Editor.',
+        contacts: [],
+        stageSummary: [],
+        liveStats: null
+      });
+    }
 
     // Get stage summary
     const { data: stageSummary } = await supabase
