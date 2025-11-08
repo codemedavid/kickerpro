@@ -482,7 +482,7 @@ If ANY NO → REWRITE until ALL YES`;
               .from('messages')
               .insert({
                 title: `AI Auto: ${rule.name} - ${conv.sender_name || 'Follow-up'}`,
-                user_id: userId,
+                created_by: userId,
                 page_id: page.id,
                 content: generated.generatedMessage,
                 status: 'pending',
