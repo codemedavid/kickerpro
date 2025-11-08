@@ -485,7 +485,7 @@ If ANY NO → REWRITE until ALL YES`;
                 created_by: userId,
                 page_id: page.id,
                 content: generated.generatedMessage,
-                status: 'pending',
+                status: 'scheduled',
                 recipient_type: 'selected',
                 selected_recipients: [conv.sender_id],
                 recipient_count: 1,
