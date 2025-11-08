@@ -194,3 +194,4 @@ After applying the Supabase configuration, login should work perfectly! 🎉
 
 
 
+

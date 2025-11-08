@@ -62,3 +62,4 @@ ALTER TABLE ai_automation_rules ENABLE ROW LEVEL SECURITY;
 
 
 
+

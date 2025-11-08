@@ -22,6 +22,22 @@ interface ContactState {
   generation_time_ms: number | null;
 }
 
+interface EligibleContact {
+  conversation_id: string;
+  sender_id: string;
+  sender_name: string;
+  last_message: string | null;
+  last_message_time: string;
+  is_being_processed: boolean;
+  current_stage: string | null;
+  matching_tags: string[];
+  executions_last_7_days: number;
+  last_execution_at: string | null;
+  contact_status: 'eligible' | 'processing' | 'recently_sent' | 'stopped';
+  is_stopped: boolean;
+  stopped_reason: string | null;
+}
+
 interface StageSummary {
   stage: string;
   count: number;
@@ -30,11 +46,21 @@ interface StageSummary {
 
 interface MonitorData {
   type: string;
-  contacts?: ContactState[];
+  activeContacts?: ContactState[];
+  eligibleContacts?: EligibleContact[];
   stageSummary?: StageSummary[];
   stats?: {
-    total: number;
+    active: number;
+    eligible: number;
+    withTags: number;
+    recentlySent: number;
+    stopped: number;
     byStage: Record<string, number>;
+    queued: number;
+    generating: number;
+    sending: number;
+    sentToday: number;
+    failed: number;
   };
 }
 
@@ -233,28 +259,137 @@ export function AutomationLiveMonitor({ ruleId, ruleName, onClose }: AutomationL
             </div>
           )}
 
-          {/* Active Contacts List */}
+          {/* Summary Stats */}
+          {monitorData?.stats && (
+            <div>
+              <h3 className="font-semibold mb-3">📈 Monitor Summary</h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <Card className="border-2 border-purple-200 bg-purple-50">
+                  <CardContent className="p-3">
+                    <div className="text-xs text-purple-600 font-medium">With Matching Tags</div>
+                    <div className="text-2xl font-bold text-purple-700">{monitorData.stats.withTags}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-blue-200 bg-blue-50">
+                  <CardContent className="p-3">
+                    <div className="text-xs text-blue-600 font-medium">Eligible</div>
+                    <div className="text-2xl font-bold text-blue-700">{monitorData.stats.eligible}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-green-200 bg-green-50">
+                  <CardContent className="p-3">
+                    <div className="text-xs text-green-600 font-medium">Processing Now</div>
+                    <div className="text-2xl font-bold text-green-700">{monitorData.stats.active}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-emerald-200 bg-emerald-50">
+                  <CardContent className="p-3">
+                    <div className="text-xs text-emerald-600 font-medium">Sent Today</div>
+                    <div className="text-2xl font-bold text-emerald-700">{monitorData.stats.sentToday}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-yellow-200 bg-yellow-50">
+                  <CardContent className="p-3">
+                    <div className="text-xs text-yellow-600 font-medium">Stopped</div>
+                    <div className="text-2xl font-bold text-yellow-700">{monitorData.stats.stopped}</div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* Eligible Contacts (Have Tags) */}
           <div>
             <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Active Contacts ({monitorData?.contacts?.length || 0})
+              <Users className="w-5 h-5 text-purple-600" />
+              Contacts with Matching Tags ({monitorData?.eligibleContacts?.length || 0})
             </h3>
 
-            {!monitorData?.contacts || monitorData.contacts.length === 0 ? (
-              <Card className="border-2 border-dashed">
-                <CardContent className="p-8 text-center">
-                  <Pause className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                  <p className="text-muted-foreground">
-                    No active contacts being processed right now
+            {!monitorData?.eligibleContacts || monitorData.eligibleContacts.length === 0 ? (
+              <Card className="border-2 border-dashed border-purple-200">
+                <CardContent className="p-6 text-center">
+                  <Users className="w-10 h-10 mx-auto text-purple-300 mb-2" />
+                  <p className="text-muted-foreground text-sm">
+                    No contacts have the required tags yet
                   </p>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Tag contacts to make them eligible for this automation
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {monitorData.eligibleContacts.slice(0, 5).map((contact) => (
+                  <Card key={contact.conversation_id} className="border border-purple-200">
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-sm truncate">{contact.sender_name}</h4>
+                            <Badge 
+                              className="text-xs"
+                              variant={
+                                contact.contact_status === 'processing' ? 'default' :
+                                contact.contact_status === 'recently_sent' ? 'secondary' :
+                                contact.contact_status === 'stopped' ? 'destructive' :
+                                'outline'
+                              }
+                            >
+                              {contact.contact_status}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-xs text-muted-foreground">
+                              Tags: {contact.matching_tags.join(', ')}
+                            </p>
+                            {contact.executions_last_7_days > 0 && (
+                              <Badge variant="secondary" className="text-xs">
+                                {contact.executions_last_7_days} sent (7d)
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        {contact.is_being_processed && (
+                          <Badge className="bg-green-100 text-green-700">
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            Processing
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+                {monitorData.eligibleContacts.length > 5 && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    + {monitorData.eligibleContacts.length - 5} more contacts with matching tags
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Active Contacts (Being Processed) */}
+          <div>
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Zap className="w-5 h-5 text-green-600" />
+              Active Processing ({monitorData?.activeContacts?.length || 0})
+            </h3>
+
+            {!monitorData?.activeContacts || monitorData.activeContacts.length === 0 ? (
+              <Card className="border-2 border-dashed border-green-200">
+                <CardContent className="p-6 text-center">
+                  <Pause className="w-10 h-10 mx-auto text-green-300 mb-2" />
+                  <p className="text-muted-foreground text-sm">
+                    No contacts being processed right now
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
                     Contacts will appear here when automation runs
                   </p>
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-2">
-                {monitorData.contacts.map((contact) => {
+                {monitorData.activeContacts.map((contact) => {
                   const config = getStageConfig(contact.current_stage);
                   const Icon = config.icon;
                   
@@ -328,10 +463,18 @@ export function AutomationLiveMonitor({ ruleId, ruleName, onClose }: AutomationL
           {/* Stats Footer */}
           {monitorData?.stats && (
             <div className="pt-4 border-t">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  Total Active: <span className="font-medium text-foreground">{monitorData.stats.total}</span>
-                </span>
+              <div className="flex items-center justify-between text-sm flex-wrap gap-2">
+                <div className="flex items-center gap-4">
+                  <span className="text-muted-foreground">
+                    With Tags: <span className="font-medium text-purple-600">{monitorData.stats.withTags}</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    Eligible: <span className="font-medium text-blue-600">{monitorData.stats.eligible}</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    Active: <span className="font-medium text-green-600">{monitorData.stats.active}</span>
+                  </span>
+                </div>
                 <span className="text-muted-foreground">
                   Updates every 2 seconds • Live data
                 </span>

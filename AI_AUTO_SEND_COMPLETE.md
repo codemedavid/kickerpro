@@ -210,3 +210,4 @@ After running the SQL:
 **Run those 3 SQL queries and your AI automations will actually send messages!** 🚀📤
 
 
+

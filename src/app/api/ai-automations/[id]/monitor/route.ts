@@ -56,13 +56,28 @@ export async function GET(
 
         const sendUpdate = async () => {
           try {
-            // Get active contacts - handle missing table gracefully
+            // Get active contacts (being processed)
             const { data: activeContacts, error: contactsError } = await supabase
               .from('active_automation_contacts')
               .select('*')
               .eq('rule_id', ruleId)
               .order('updated_at', { ascending: false })
               .limit(100);
+
+            // Get eligible contacts (have matching tags)
+            const { data: eligibleContacts, error: eligibleError } = await supabase
+              .from('automation_eligible_contacts')
+              .select('*')
+              .eq('rule_id', ruleId)
+              .order('last_message_time', { ascending: false })
+              .limit(100);
+
+            // Get monitor summary (combined stats)
+            const { data: monitorSummary, error: summaryStatsError } = await supabase
+              .from('automation_monitor_summary')
+              .select('*')
+              .eq('rule_id', ruleId)
+              .single();
 
             // Check if monitoring tables don't exist (PGRST205 = relation not found)
             if (contactsError && contactsError.code === 'PGRST205') {
@@ -72,17 +87,22 @@ export async function GET(
                 timestamp: new Date().toISOString(),
                 monitoring_disabled: true,
                 message: 'Live monitoring not set up. Run fix-ai-automation-monitoring.sql in Supabase.',
-                contacts: [],
+                activeContacts: [],
+                eligibleContacts: [],
                 stageSummary: [],
-                stats: { total: 0, byStage: {} }
+                stats: { total: 0, byStage: {}, eligible: 0, withTags: 0 }
               };
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(setupUpdate)}\n\n`));
               return;
             }
 
             if (contactsError) {
-              console.error('[Monitor] Error fetching contacts:', contactsError);
+              console.error('[Monitor] Error fetching active contacts:', contactsError);
               return;
+            }
+
+            if (eligibleError && eligibleError.code !== 'PGRST116') { // PGRST116 = no rows returned
+              console.error('[Monitor] Error fetching eligible contacts:', eligibleError);
             }
 
             // Get stage summary - handle missing function gracefully
@@ -95,18 +115,37 @@ export async function GET(
               console.error('[Monitor] Error fetching summary:', summaryError);
             }
 
-            // Send update
+            // Send update with BOTH active and eligible contacts
             const update = {
               type: 'update',
               timestamp: new Date().toISOString(),
-              contacts: activeContacts || [],
+              // Active contacts (currently being processed)
+              activeContacts: activeContacts || [],
+              // Eligible contacts (have matching tags)
+              eligibleContacts: eligibleContacts || [],
               stageSummary: stageSummary || [],
               stats: {
-                total: activeContacts?.length || 0,
+                // Active processing count
+                active: activeContacts?.length || 0,
+                // Eligible contacts with tags
+                eligible: monitorSummary?.eligible_count || 0,
+                // Total with matching tags
+                withTags: monitorSummary?.total_with_tags || 0,
+                // Recently sent
+                recentlySent: monitorSummary?.recently_sent_count || 0,
+                // Stopped
+                stopped: monitorSummary?.stopped_count || 0,
+                // Stage breakdown
                 byStage: (stageSummary || []).reduce((acc: any, s: any) => {
                   acc[s.stage] = s.count;
                   return acc;
-                }, {})
+                }, {}),
+                // Detailed counts from summary
+                queued: monitorSummary?.queued_count || 0,
+                generating: monitorSummary?.generating_count || 0,
+                sending: monitorSummary?.sending_count || 0,
+                sentToday: monitorSummary?.sent_today_count || 0,
+                failed: monitorSummary?.failed_count || 0
               }
             };
 
@@ -186,7 +225,7 @@ export async function POST(
       return NextResponse.json({ error: 'Rule not found' }, { status: 404 });
     }
 
-    // Get active contacts - handle missing table gracefully
+    // Get active contacts (being processed)
     const { data: activeContacts, error: contactsError } = await supabase
       .from('active_automation_contacts')
       .select('*')
@@ -194,15 +233,31 @@ export async function POST(
       .order('updated_at', { ascending: false })
       .limit(100);
 
+    // Get eligible contacts (have matching tags)
+    const { data: eligibleContacts, error: eligibleError } = await supabase
+      .from('automation_eligible_contacts')
+      .select('*')
+      .eq('rule_id', ruleId)
+      .order('last_message_time', { ascending: false })
+      .limit(100);
+
+    // Get monitor summary (combined stats)
+    const { data: monitorSummary } = await supabase
+      .from('automation_monitor_summary')
+      .select('*')
+      .eq('rule_id', ruleId)
+      .single();
+
     // Check if monitoring tables don't exist
     if (contactsError && contactsError.code === 'PGRST205') {
       return NextResponse.json({
         rule,
         monitoring_disabled: true,
-        message: 'Live monitoring not set up. Run fix-ai-automation-monitoring.sql in Supabase SQL Editor.',
-        contacts: [],
+        message: 'Live monitoring not set up. Run fix-monitoring-data-alignment.sql in Supabase SQL Editor.',
+        activeContacts: [],
+        eligibleContacts: [],
         stageSummary: [],
-        liveStats: null
+        stats: { active: 0, eligible: 0, withTags: 0 }
       });
     }
 
@@ -210,18 +265,36 @@ export async function POST(
     const { data: stageSummary } = await supabase
       .rpc('get_automation_stage_summary', { p_rule_id: ruleId });
 
-    // Get live stats
-    const { data: liveStats } = await supabase
-      .from('automation_live_stats')
-      .select('*')
-      .eq('rule_id', ruleId)
-      .single();
-
     return NextResponse.json({
       rule,
-      contacts: activeContacts || [],
+      // Active contacts (currently being processed)
+      activeContacts: activeContacts || [],
+      // Eligible contacts (have matching tags)
+      eligibleContacts: eligibleContacts || [],
       stageSummary: stageSummary || [],
-      liveStats: liveStats || null
+      stats: {
+        // Active processing count
+        active: activeContacts?.length || 0,
+        // Eligible contacts with tags
+        eligible: monitorSummary?.eligible_count || 0,
+        // Total with matching tags
+        withTags: monitorSummary?.total_with_tags || 0,
+        // Recently sent
+        recentlySent: monitorSummary?.recently_sent_count || 0,
+        // Stopped
+        stopped: monitorSummary?.stopped_count || 0,
+        // Stage breakdown
+        byStage: (stageSummary || []).reduce((acc: any, s: any) => {
+          acc[s.stage] = s.count;
+          return acc;
+        }, {}),
+        // Detailed counts from summary
+        queued: monitorSummary?.queued_count || 0,
+        generating: monitorSummary?.generating_count || 0,
+        sending: monitorSummary?.sending_count || 0,
+        sentToday: monitorSummary?.sent_today_count || 0,
+        failed: monitorSummary?.failed_count || 0
+      }
     });
 
   } catch (error) {
