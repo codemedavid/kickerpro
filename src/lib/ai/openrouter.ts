@@ -387,7 +387,18 @@ You are being tested on PERSONALIZATION ability. Each message must be DIFFERENT 
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!content) {
-      throw new Error('No content in Google AI response');
+      // Log the full response for debugging
+      console.error('[Google AI] No content in response. Full response:', JSON.stringify(data, null, 2));
+      
+      // Check for safety blocks
+      const finishReason = data.candidates?.[0]?.finishReason;
+      const safetyRatings = data.candidates?.[0]?.safetyRatings;
+      
+      if (finishReason === 'SAFETY') {
+        throw new Error(`Google AI blocked response due to safety filters. Ratings: ${JSON.stringify(safetyRatings)}`);
+      }
+      
+      throw new Error(`No content in Google AI response. Finish reason: ${finishReason || 'unknown'}`);
     }
     
     return content;
