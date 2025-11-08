@@ -281,28 +281,29 @@ export async function POST(request: NextRequest) {
         for (const conv of conversationsToProcess) {
           try {
             // Create monitoring state entry - QUEUED
-            const { data: stateRecord } = await supabase
-              .from('ai_automation_contact_states')
-              .insert({
-                rule_id: rule.id,
-                conversation_id: conv.id,
-                sender_id: conv.sender_id,
-                sender_name: conv.sender_name || 'Customer',
-                current_stage: 'queued',
-                status_message: 'Added to processing queue',
-                max_follow_ups: rule.max_follow_ups || 0,
-                follow_up_count: followUpCountMap.get(conv.id) || 0
-              })
-              .select()
-              .single()
-              .catch(err => {
-                console.warn('[Monitor] Could not create state entry:', err);
-                return { data: null };
-              });
+            try {
+              const { data: stateRecord, error: stateError } = await supabase
+                .from('ai_automation_contact_states')
+                .insert({
+                  rule_id: rule.id,
+                  conversation_id: conv.id,
+                  sender_id: conv.sender_id,
+                  sender_name: conv.sender_name || 'Customer',
+                  current_stage: 'queued',
+                  status_message: 'Added to processing queue',
+                  max_follow_ups: rule.max_follow_ups || 0,
+                  follow_up_count: followUpCountMap.get(conv.id) || 0
+                })
+                .select()
+                .single();
 
-            // Store state ID for updates
-            if (stateRecord?.id) {
-              stateIdMap.set(conv.id, stateRecord.id);
+              if (!stateError && stateRecord?.id) {
+                stateIdMap.set(conv.id, stateRecord.id);
+              } else if (stateError) {
+                console.warn('[Monitor] Could not create state entry:', stateError);
+              }
+            } catch (stateErr) {
+              console.warn('[Monitor] Could not create state entry:', stateErr);
             }
 
             // Get page access token
