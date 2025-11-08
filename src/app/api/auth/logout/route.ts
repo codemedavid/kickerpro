@@ -2,16 +2,18 @@ import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
-    // Clear the user cookie
+    // Clear all auth cookies
     const response = NextResponse.json({
       success: true,
       message: 'Logged out successfully'
     });
 
-    // Delete the auth cookie
+    // Delete all auth cookies
     response.cookies.delete('fb-user-id');
+    response.cookies.delete('fb-auth-user');
+    response.cookies.delete('fb-access-token');
 
-    console.log('[Logout] User logged out successfully');
+    console.log('[Logout] User logged out successfully - all cookies cleared');
 
     return response;
   } catch (error) {
