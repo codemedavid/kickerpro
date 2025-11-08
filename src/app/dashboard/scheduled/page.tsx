@@ -131,7 +131,7 @@ export default function ScheduledMessagesPage() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [queryClient]);
+  }, [queryClient, toast]);
 
   // Delete mutation
   const deleteMutation = useMutation({

@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
  * Check the latest message and its actual status
  * GET /api/messages/check-latest
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-user-id')?.value;

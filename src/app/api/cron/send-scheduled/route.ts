@@ -12,7 +12,7 @@ import { createClient } from '@/lib/supabase/server';
  * 
  * Works even when no pages are open!
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const currentTime = new Date();
     console.log('[Cron Send Scheduled] ⏰ Starting scheduled message check at', currentTime.toISOString());

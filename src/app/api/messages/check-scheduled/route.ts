@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
  * Check what scheduled messages exist and why they're not sending
  * GET /api/messages/check-scheduled
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-user-id')?.value;

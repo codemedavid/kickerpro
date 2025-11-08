@@ -6,10 +6,10 @@ import { cookies } from 'next/headers';
  * Debug send - shows EVERY step of message sending
  * GET /api/messages/debug-send
  */
-export async function GET(request: NextRequest) {
-  const log: any[] = [];
+export async function GET(_request: NextRequest) {
+  const log: Array<{ step: string; status: string; message: string; data?: unknown; timestamp: string }> = [];
   
-  const addLog = (step: string, status: 'info' | 'success' | 'error', message: string, data?: any) => {
+  const addLog = (step: string, status: 'info' | 'success' | 'error', message: string, data?: unknown) => {
     console.log(`[Debug Send] ${step}: ${message}`, data || '');
     log.push({
       step,

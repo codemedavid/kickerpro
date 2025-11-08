@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
  * Check ALL messages for this user (any status)
  * GET /api/messages/check-all
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-user-id')?.value;

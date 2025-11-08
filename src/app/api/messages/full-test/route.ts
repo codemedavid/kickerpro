@@ -6,8 +6,12 @@ import { cookies } from 'next/headers';
  * Full comprehensive test of entire message sending pipeline
  * GET /api/messages/full-test
  */
-export async function GET(request: NextRequest) {
-  const results: any = {
+export async function GET(_request: NextRequest) {
+  const results: { 
+    timestamp: string; 
+    tests: Array<Record<string, unknown>>;
+    summary?: Record<string, unknown>;
+  } = {
     timestamp: new Date().toISOString(),
     tests: []
   };

@@ -44,7 +44,7 @@ interface AutomationLiveMonitorProps {
   onClose: () => void;
 }
 
-const STAGE_CONFIG: Record<string, { label: string; icon: any; color: string; description: string }> = {
+const STAGE_CONFIG: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; description: string }> = {
   queued: {
     label: 'Queued',
     icon: Clock,
@@ -157,11 +157,6 @@ export function AutomationLiveMonitor({ ruleId, ruleName, onClose }: AutomationL
       eventSource?.close();
     };
   }, [ruleId]);
-
-  const getStageIcon = (stage: string) => {
-    const Icon = STAGE_CONFIG[stage]?.icon || AlertCircle;
-    return Icon;
-  };
 
   const getStageConfig = (stage: string) => {
     return STAGE_CONFIG[stage] || {
