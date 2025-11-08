@@ -67,6 +67,10 @@ export default function ComposePage() {
   const [includeTagIds, setIncludeTagIds] = useState<string[]>([]);
   const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]);
   
+  // AI personalization for auto-fetch
+  const [aiPersonalizeAutoFetch, setAiPersonalizeAutoFetch] = useState(false);
+  const [aiAutoFetchInstructions, setAiAutoFetchInstructions] = useState('');
+  
   // AI generation state
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [aiGeneratedMessages, setAiGeneratedMessages] = useState<Array<{
@@ -543,7 +547,11 @@ export default function ComposePage() {
         auto_fetch_enabled: autoFetchEnabled,
         auto_fetch_page_id: autoFetchEnabled ? formData.pageId : null,
         include_tag_ids: includeTagIds.length > 0 ? includeTagIds : [],
-        exclude_tag_ids: excludeTagIds.length > 0 ? excludeTagIds : []
+        exclude_tag_ids: excludeTagIds.length > 0 ? excludeTagIds : [],
+        ai_personalize_auto_fetch: autoFetchEnabled && aiPersonalizeAutoFetch,
+        ai_custom_instructions: aiPersonalizeAutoFetch && aiAutoFetchInstructions.trim() 
+          ? aiAutoFetchInstructions.trim() 
+          : null
       }),
       // Add AI personalized messages if bulk send with AI is enabled
       ...(useAiBulkSend && aiGeneratedMessages.length > 0 && {
@@ -1272,6 +1280,44 @@ export default function ComposePage() {
                           )}
                         </div>
                       )}
+
+                      {/* AI Personalization for Auto-Fetch */}
+                      <div className="border-t border-blue-300 pt-3 mt-3">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-purple-600" />
+                            <Label htmlFor="ai-personalize-auto-fetch" className="font-semibold text-blue-900">
+                              AI Personalize New Contacts
+                            </Label>
+                          </div>
+                          <Switch
+                            id="ai-personalize-auto-fetch"
+                            checked={aiPersonalizeAutoFetch}
+                            onCheckedChange={setAiPersonalizeAutoFetch}
+                          />
+                        </div>
+                        <p className="text-xs text-blue-700 mb-3">
+                          Generate unique AI-personalized messages for each auto-fetched contact based on their conversation history
+                        </p>
+
+                        {aiPersonalizeAutoFetch && (
+                          <div className="space-y-2 bg-white rounded p-3">
+                            <Label htmlFor="ai-auto-fetch-instructions" className="text-sm font-medium text-blue-900">
+                              Custom AI Instructions (Optional)
+                            </Label>
+                            <Textarea
+                              id="ai-auto-fetch-instructions"
+                              placeholder="e.g., Focus on our holiday sale, keep it casual and friendly, mention 30% off..."
+                              value={aiAutoFetchInstructions}
+                              onChange={(e) => setAiAutoFetchInstructions(e.target.value)}
+                              className="min-h-[80px] text-sm"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              These instructions will guide the AI when generating personalized messages for new contacts
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

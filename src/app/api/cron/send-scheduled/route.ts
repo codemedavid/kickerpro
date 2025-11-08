@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { openRouterService } from '@/lib/ai/openrouter';
+import type { ConversationContext } from '@/lib/ai/openrouter';
 
 /**
  * Cron job endpoint for sending scheduled messages
@@ -205,14 +207,99 @@ export async function GET(request: NextRequest) {
                 
                 console.log(`[Cron Send Scheduled] After filters: ${selectedRecipients.length} recipients`);
 
-                // Update message with fresh recipients
+                // Generate AI messages if AI personalization is enabled
+                let aiMessagesMap: Record<string, string> | undefined;
+                if (msg.ai_personalize_auto_fetch && selectedRecipients.length > 0) {
+                  console.log(`[Cron Send Scheduled] AI personalization enabled for ${selectedRecipients.length} contacts`);
+                  
+                  try {
+                    // Fetch message histories for all recipients
+                    const { data: messageHistories } = await supabase
+                      .from('messenger_messages')
+                      .select('*')
+                      .eq('page_id', page.facebook_page_id)
+                      .in('sender_id', selectedRecipients)
+                      .order('timestamp', { ascending: false })
+                      .limit(1000);
+
+                    // Group messages by sender_id to create conversation contexts
+                    const conversationContexts: ConversationContext[] = [];
+                    const messagesBySender = new Map<string, any[]>();
+                    
+                    if (messageHistories) {
+                      for (const message of messageHistories) {
+                        const senderId = message.sender_id;
+                        if (!messagesBySender.has(senderId)) {
+                          messagesBySender.set(senderId, []);
+                        }
+                        messagesBySender.get(senderId)!.push(message);
+                      }
+                    }
+
+                    // Create context for each recipient
+                    for (const senderId of selectedRecipients) {
+                      const messages = messagesBySender.get(senderId) || [];
+                      const conversation = filteredRecipients.find((c: any) => c.sender_id === senderId);
+                      
+                      conversationContexts.push({
+                        conversationId: senderId,
+                        participantName: conversation?.sender_name || 'Customer',
+                        messages: messages.map(m => ({
+                          text: m.message_text || '',
+                          timestamp: m.timestamp,
+                          isFromPage: m.is_from_page,
+                          senderId: m.sender_id
+                        })),
+                        metadata: {
+                          pageId: page.facebook_page_id,
+                          tags: conversation?.conversation_tags || []
+                        }
+                      });
+                    }
+
+                    console.log(`[Cron Send Scheduled] Generating AI messages for ${conversationContexts.length} conversations...`);
+                    
+                    // Generate AI messages
+                    const generatedMessages = await openRouterService.generateBatchMessages(
+                      conversationContexts,
+                      msg.ai_custom_instructions || undefined
+                    );
+
+                    // Build AI messages map
+                    aiMessagesMap = {};
+                    for (const generated of generatedMessages) {
+                      aiMessagesMap[generated.conversationId] = generated.generatedMessage;
+                    }
+
+                    console.log(`[Cron Send Scheduled] Generated ${Object.keys(aiMessagesMap).length} AI messages`);
+                  } catch (aiError) {
+                    console.error('[Cron Send Scheduled] AI generation error:', aiError);
+                    // Continue without AI messages if generation fails
+                  }
+                }
+
+                // Update message with fresh recipients and AI messages
+                const updateData: {
+                  selected_recipients: string[];
+                  recipient_count: number;
+                  recipient_type: string;
+                  use_ai_bulk_send?: boolean;
+                  ai_messages_map?: Record<string, string>;
+                } = {
+                  selected_recipients: selectedRecipients,
+                  recipient_count: selectedRecipients.length,
+                  recipient_type: 'selected'
+                };
+
+                if (aiMessagesMap && Object.keys(aiMessagesMap).length > 0) {
+                  updateData.use_ai_bulk_send = true;
+                  updateData.ai_messages_map = aiMessagesMap;
+                  console.log(`[Cron Send Scheduled] Enabled AI bulk send with ${Object.keys(aiMessagesMap).length} personalized messages`);
+                }
+
                 await supabase
                   .from('messages')
-                  .update({
-                    selected_recipients: selectedRecipients,
-                    recipient_count: selectedRecipients.length,
-                    recipient_type: 'selected'
-                  })
+                  .update(updateData)
                   .eq('id', msg.id);
               }
             } catch (syncError) {
@@ -304,10 +391,17 @@ export async function GET(request: NextRequest) {
 
         for (const recipientId of recipients) {
           try {
+            // Use AI-generated message if available, otherwise use standard content
+            let contentToSend = msg.content;
+            if (msg.use_ai_bulk_send && msg.ai_messages_map && msg.ai_messages_map[recipientId]) {
+              contentToSend = msg.ai_messages_map[recipientId];
+              console.log(`[Cron Send Scheduled] Using AI-generated message for ${recipientId.substring(0, 20)}`);
+            }
+
             const result = await sendFacebookMessage(
               page.facebook_page_id,
               recipientId,
-              msg.content,
+              contentToSend,
               page.access_token,
               msg.message_tag || null
             );

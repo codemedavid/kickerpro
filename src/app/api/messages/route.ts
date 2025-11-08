@@ -95,7 +95,9 @@ export async function POST(request: NextRequest) {
       include_tag_ids,
       exclude_tag_ids,
       use_ai_bulk_send,
-      ai_messages_map
+      ai_messages_map,
+      ai_personalize_auto_fetch,
+      ai_custom_instructions
     } = body;
 
     // Validation
@@ -152,6 +154,8 @@ export async function POST(request: NextRequest) {
     exclude_tag_ids?: string[];
     use_ai_bulk_send?: boolean;
     ai_messages_map?: Record<string, string>;
+    ai_personalize_auto_fetch?: boolean;
+    ai_custom_instructions?: string | null;
   } = {
     title,
     content,
@@ -176,6 +180,16 @@ export async function POST(request: NextRequest) {
       messageData.auto_fetch_page_id = auto_fetch_page_id || page_id;
       messageData.include_tag_ids = include_tag_ids || [];
       messageData.exclude_tag_ids = exclude_tag_ids || [];
+      
+      // Add AI personalization for auto-fetch if enabled
+      if (ai_personalize_auto_fetch) {
+        messageData.ai_personalize_auto_fetch = true;
+        messageData.ai_custom_instructions = ai_custom_instructions || null;
+        console.log('[Messages API] AI personalization enabled for auto-fetch');
+        if (ai_custom_instructions) {
+          console.log('[Messages API] Custom AI instructions:', ai_custom_instructions);
+        }
+      }
     }
 
     // Add AI bulk send data if enabled
