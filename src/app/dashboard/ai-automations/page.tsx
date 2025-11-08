@@ -1198,7 +1198,11 @@ Ask if they're still interested."
                           <span>•</span>
                           <span>🏷️ Tag: {rule.message_tag}</span>
                           <span>•</span>
-                          <span>⏰ {rule.active_hours_start}:00-{rule.active_hours_end}:00</span>
+                          {rule.run_24_7 ? (
+                            <span>🌍 24/7 Mode</span>
+                          ) : (
+                            <span>⏰ {String(rule.active_hours_start).padStart(2, '0')}:{String(rule.active_hours_start_minutes || 0).padStart(2, '0')}-{String(rule.active_hours_end).padStart(2, '0')}:{String(rule.active_hours_end_minutes || 0).padStart(2, '0')}</span>
+                          )}
                         </div>
                       </div>
 
