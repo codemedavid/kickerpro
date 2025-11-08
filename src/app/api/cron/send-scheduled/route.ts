@@ -183,7 +183,7 @@ export async function GET(request: NextRequest) {
                 // Fetch and filter recipients
                 const { data: allConversations } = await supabase
                   .from('messenger_conversations')
-                  .select('sender_id, conversation_tags')
+                  .select('sender_id, sender_name, conversation_tags')
                   .eq('page_id', page.facebook_page_id);
 
                 let filteredRecipients = allConversations || [];
