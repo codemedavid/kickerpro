@@ -18,7 +18,6 @@ export async function middleware(request: NextRequest) {
     console.warn('[Middleware] Supabase not configured - allowing all access')
     return NextResponse.next()
   }
-
   let supabaseResponse = NextResponse.next({
     request,
   })
