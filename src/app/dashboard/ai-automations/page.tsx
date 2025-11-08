@@ -38,6 +38,9 @@ interface AutomationRule {
   max_messages_per_day: number;
   active_hours_start: number;
   active_hours_end: number;
+  active_hours_start_minutes: number;
+  active_hours_end_minutes: number;
+  run_24_7: boolean;
   last_executed_at: string | null;
   execution_count: number;
   success_count: number;
