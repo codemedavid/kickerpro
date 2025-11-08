@@ -5,15 +5,29 @@ import { createClient } from '@/lib/supabase/server';
  * Cron job endpoint for sending scheduled messages
  * GET /api/cron/send-scheduled
  * 
- * This should be called by:
- * - Vercel Cron (production) - runs every 1 minute automatically
- * - External cron service (development) - call this URL every minute
- * - Manual testing - visit in browser
+ * This is automatically called by Vercel Cron every 1 minute (configured in vercel.json)
+ * Works 24/7 server-side - no browser needs to be open!
  * 
- * Works even when no pages are open!
+ * For local development testing:
+ * - Set CRON_SECRET in .env.local
+ * - Call: curl http://localhost:3000/api/cron/send-scheduled -H "Authorization: Bearer your-secret"
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
+    // Verify authorization for security (Vercel Cron automatically passes this)
+    const authHeader = request.headers.get('authorization');
+    const cronSecret = process.env.CRON_SECRET;
+    
+    // In production, Vercel Cron passes the secret automatically
+    // For local dev, you need to set CRON_SECRET in .env.local
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      console.warn('[Cron Send Scheduled] ⚠️ Unauthorized access attempt');
+      return NextResponse.json({ 
+        error: 'Unauthorized',
+        message: 'Invalid or missing authorization header' 
+      }, { status: 401 });
+    }
+
     const currentTime = new Date();
     console.log('[Cron Send Scheduled] ⏰ Starting scheduled message check at', currentTime.toISOString());
     console.log('[Cron Send Scheduled] Local time:', currentTime.toLocaleString());

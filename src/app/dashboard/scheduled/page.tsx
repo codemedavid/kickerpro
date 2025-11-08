@@ -71,6 +71,8 @@ export default function ScheduledMessagesPage() {
   });
 
   // Fetch scheduled messages
+  // Auto-refresh every 30 seconds to show latest status
+  // Actual sending is handled by server-side cron job (/api/cron/send-scheduled)
   const { data: messages = [], isLoading } = useQuery<ScheduledMessage[]>({
     queryKey: ['scheduled-messages', user?.id],
     queryFn: async () => {
@@ -80,58 +82,8 @@ export default function ScheduledMessagesPage() {
       return data.messages || [];
     },
     enabled: !!user?.id,
-    refetchInterval: 30000 // Refresh every 30 seconds
+    refetchInterval: 30000 // Refresh every 30 seconds to show updated status
   });
-
-  // Periodically trigger scheduled dispatch for this user (runs in the background)
-  useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
-    const tick = async () => {
-      try {
-        console.log('[Scheduled] Running auto-dispatch check...');
-        const response = await fetch('/api/messages/scheduled/dispatch', { method: 'POST' });
-        if (response.ok) {
-          const result = await response.json();
-          console.log('[Scheduled] Auto-dispatch result:', result);
-          if (result.dispatched > 0) {
-            console.log(`[Scheduled] ✅ Auto-sent ${result.dispatched} message(s)`);
-            
-            // Show success notification
-            toast({
-              title: "✅ Message Sent Automatically!",
-              description: `${result.dispatched} scheduled message(s) were sent to Facebook`,
-              duration: 5000
-            });
-            
-            // Refresh the lists
-            queryClient.invalidateQueries({ queryKey: ['scheduled-messages'] });
-            queryClient.invalidateQueries({ queryKey: ['messages'] });
-            queryClient.invalidateQueries({ queryKey: ['stats'] });
-          }
-        } else {
-          // Get detailed error
-          const errorText = await response.text();
-          console.error('[Scheduled] Auto-dispatch failed:', response.status, errorText);
-          
-          // Try to parse as JSON
-          try {
-            const errorJson = JSON.parse(errorText);
-            console.error('[Scheduled] Error details:', errorJson);
-          } catch {
-            console.error('[Scheduled] Raw error:', errorText);
-          }
-        }
-      } catch (error) {
-        console.error('[Scheduled] Auto-dispatch error:', error);
-      }
-    };
-    // Kick once immediately, then every 30s (aligned with refetch)
-    tick();
-    timer = setInterval(tick, 30000);
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [queryClient, toast]);
 
   // Delete mutation
   const deleteMutation = useMutation({
