@@ -362,7 +362,6 @@ export async function GET(request: NextRequest) {
                   conversation_id: conv.id,
                   page_id: page.id,
                   recipient_psid: conv.sender_id,
-                  recipient_name: conv.sender_name || 'Customer',
                   status: 'processing'
                 })
                 .select()
