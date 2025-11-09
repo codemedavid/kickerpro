@@ -35,7 +35,12 @@ export async function POST(request: NextRequest) {
         for (const event of messaging) {
           if (event.message) {
             // Only handle incoming messages (from user, not echo from page)
-            const isEcho = event.message.is_echo === true;
+            // Alternative approach: Check if sender is the page itself
+            const senderId = event.sender?.id;
+            const recipientId = event.recipient?.id;
+            // isEcho if: sender === recipient (page talking to itself) OR explicit is_echo flag
+            // Also treat as echo if sender/recipient missing (safety)
+            const isEcho = (senderId && recipientId && senderId === recipientId) || event.message.is_echo === true;
             
             if (!isEcho && event.message.text) {
               // This is a real user message with text

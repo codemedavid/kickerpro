@@ -85,13 +85,18 @@ git commit -m "feat: Auto-remove tags when customer replies"
 git push
 ```
 
-### **2. Update Facebook Webhook** (CRITICAL!)
+### **2. Update Facebook Webhook** (Optional)
+**No configuration required!** The system uses smart sender/recipient comparison.
+
+**Optional:** For extra reliability, enable `message_echoes`:
 1. Go to https://developers.facebook.com/apps
 2. Your App → Messenger → Settings
 3. Webhooks → Edit subscription
-4. ✅ Check: `messages`
-5. ✅ Check: `message_echoes` ← **MUST ENABLE**
+4. ✅ Check: `messages` (required)
+5. ✅ Check: `message_echoes` (optional, adds redundancy)
 6. Save
+
+**Note:** System works perfectly without `message_echoes`!
 
 ### **3. Test It**
 1. Create automation with "Stop on Reply" ON

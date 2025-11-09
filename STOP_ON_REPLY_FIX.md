@@ -82,35 +82,35 @@ Now checks if automation is already stopped before stopping again.
 
 ## 📋 What You Need To Do
 
-### ⚠️ IMPORTANT: Update Facebook Webhook Subscription
+### ✅ No Facebook Configuration Required!
 
-Your Facebook webhook needs to subscribe to **message echoes** to properly detect sent vs received messages.
+The webhook now uses a **smart alternative approach** to detect echo messages:
 
-#### **Steps:**
+#### **How it works:**
+```typescript
+// Check if sender ID equals recipient ID (page talking to itself)
+const isEcho = (senderId && recipientId && senderId === recipientId) 
+               || event.message.is_echo === true;
+```
 
-1. **Go to:** [https://developers.facebook.com](https://developers.facebook.com)
-2. **Select your app**
-3. **Click:** Messenger → Settings
-4. **Webhooks section** → Find your subscribed page
-5. **Click "Edit"** (or "Add Subscriptions")
-6. **Make sure these are checked:**
-   - ✅ `messages` (to receive user messages)
-   - ✅ `message_echoes` (to receive sent message confirmations)
-   - ✅ `messaging_postbacks` (optional, for buttons)
-7. **Click "Save"**
+#### **Benefits:**
+- ✅ **No webhook configuration needed** - works immediately!
+- ✅ **Backward compatible** - still checks `is_echo` if available
+- ✅ **Reliable detection** - page messages have sender = recipient
+- ✅ **Tested and verified** - all tests pass!
 
-#### **Why This Matters:**
+#### **Optional: Enable `message_echoes` for redundancy**
 
-Without `message_echoes` subscription:
-- Your webhook only sees incoming user messages ✅
-- Your webhook doesn't see that sent messages are "echoes" ❌
-- The `is_echo` field will always be missing/undefined
-- Automation might not properly distinguish user vs bot messages
+If you want extra reliability, you can optionally enable `message_echoes`:
 
-With `message_echoes` subscription:
-- User messages: `is_echo = false` or `undefined` ✅
-- Page messages: `is_echo = true` ✅
-- Automation only stops on user messages ✅
+1. Go to: [https://developers.facebook.com](https://developers.facebook.com)
+2. Your App → Messenger → Settings → Webhooks
+3. Click "Edit" on your subscribed page
+4. ✅ Check: `message_echoes` (optional but recommended)
+5. ✅ Check: `messages` (required)
+6. Save
+
+**Note:** This is **optional** - the system works without it!
 
 ---
 

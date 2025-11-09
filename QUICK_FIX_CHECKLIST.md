@@ -7,34 +7,30 @@
 ✨ **Auto-Remove AI Tag** - Removes "AI" tag universally when customer replies
 ✨ **Echo Detection** - Distinguishes user messages from page messages
 
-## 🚨 Action Required (5 Minutes)
+## 🚨 Action Required (2 Minutes)
 
 ### ✅ Step 1: Deploy Code Changes
 The code has been fixed. Deploy to Vercel:
 
 ```bash
 git add .
-git commit -m "Fix: Stop When Contact Replies - Add echo detection"
+git commit -m "feat: Smart echo detection + auto-remove tags"
 git push
 ```
 
-### ✅ Step 2: Update Facebook Webhook Settings
+### ✅ Step 2: No Facebook Configuration Needed! 🎉
 
-**CRITICAL:** You must enable `message_echoes` in your Facebook webhook subscription.
+**Great news!** The system now uses smart sender/recipient comparison, so **NO webhook configuration is required**.
 
-#### Quick Steps:
-1. Go to: https://developers.facebook.com/apps
-2. Select your app
-3. Messenger → Settings
-4. Find "Webhooks" section
-5. Click "Edit" on your subscribed page
-6. ✅ Check these boxes:
-   - **messages** (should already be checked)
-   - **message_echoes** ← ADD THIS!
-   - **messaging_postbacks** (optional)
-7. Click "Save"
+**How it works:**
+- Checks if `sender ID === recipient ID` (page talking to itself = echo)
+- Also checks `is_echo` flag if available (backward compatible)
+- **Works immediately without any Facebook settings changes!**
 
-**That's it!** 🎉
+**Optional (for extra redundancy):**
+If you want, you can optionally enable `message_echoes` in Facebook webhook settings for double-checking, but it's **not required**.
+
+**That's it!** 🎉 Just deploy and it works!
 
 ---
 
