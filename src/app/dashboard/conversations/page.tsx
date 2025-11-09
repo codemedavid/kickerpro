@@ -16,7 +16,6 @@ import {
   Tag as TagIcon,
   Plus,
   X,
-  Target,
   GitBranch
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -93,7 +92,6 @@ export default function ConversationsPage() {
   const [syncBaselineCount, setSyncBaselineCount] = useState(0);
   const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
-  const [isScoringLeads, setIsScoringLeads] = useState(false);
   const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
   const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
 
@@ -562,64 +560,6 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
-  const handleScoreLeads = async () => {
-    if (selectedContacts.size === 0) {
-      toast({
-        title: "No Contacts Selected",
-        description: "Please select contacts to score.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsScoringLeads(true);
-    
-    try {
-      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
-      
-      const response = await fetch('/api/ai/score-leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationIds: Array.from(selectedContacts),
-          pageId: selectedPage?.id,
-          autoTag: true
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to score leads');
-      }
-
-      const data = await response.json();
-      
-      const hotCount = data.scores.filter((s: any) => s.quality === 'Hot').length;
-      const warmCount = data.scores.filter((s: any) => s.quality === 'Warm').length;
-      const coldCount = data.scores.filter((s: any) => s.quality === 'Cold').length;
-      
-      const description = `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`;
-      
-      toast({
-        title: "Lead Scoring Complete!",
-        description,
-        duration: 5000
-      });
-      
-      // Refresh conversations to show new tags
-      await refetch();
-      
-    } catch (error) {
-      toast({
-        title: "Scoring Error",
-        description: error instanceof Error ? error.message : 'Failed to score leads',
-        variant: "destructive"
-      });
-    } finally {
-      setIsScoringLeads(false);
-    }
-  };
-
-
   const handleSendToSelected = async () => {
     if (selectedContacts.size === 0) {
       toast({
@@ -815,23 +755,6 @@ export default function ConversationsPage() {
         <div className="flex gap-3">
           {selectedContacts.size > 0 && (
             <>
-              <Button 
-                onClick={handleScoreLeads}
-                disabled={isScoringLeads}
-                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg"
-              >
-                {isScoringLeads ? (
-                  <>
-                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    Scoring {selectedContacts.size} lead{selectedContacts.size !== 1 ? 's' : ''}...
-                  </>
-                ) : (
-                  <>
-                    <Target className="mr-2 w-4 h-4" />
-                    Score {selectedContacts.size} Lead{selectedContacts.size !== 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
               <Button 
                 onClick={handleSendToSelected}
                 className="bg-green-600 hover:bg-green-700"
