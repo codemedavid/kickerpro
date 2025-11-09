@@ -128,14 +128,12 @@ function DraggableContactCard({
   isDragging,
   onToggleSelect,
   onMove,
-  onRemove,
 }: {
   opportunity: PipelineOpportunity;
   isSelected: boolean;
   isDragging: boolean;
   onToggleSelect: () => void;
   onMove: () => void;
-  onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: opportunity.id,
@@ -208,30 +206,17 @@ function DraggableContactCard({
             )}
           </div>
         </div>
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMove();
-            }}
-          >
-            <MoveRight className="w-3 h-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-          >
-            <Trash2 className="w-3 h-3" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMove();
+          }}
+        >
+          <MoveRight className="w-3 h-3" />
+        </Button>
       </div>
     </div>
   );
@@ -251,6 +236,8 @@ export default function PipelinePage() {
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
   const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
   const [selectedStageForAdd, setSelectedStageForAdd] = useState<string | null>(null);
+  const [expandedStage, setExpandedStage] = useState<PipelineStage | null>(null);
+  const [isStageExpandedDialogOpen, setIsStageExpandedDialogOpen] = useState(false);
   
   // Search states per stage
   const [stageSearchQueries, setStageSearchQueries] = useState<Record<string, string>>({});
@@ -735,6 +722,11 @@ export default function PipelinePage() {
     setIsAddContactDialogOpen(true);
   };
 
+  const handleExpandStage = (stage: PipelineStage) => {
+    setExpandedStage(stage);
+    setIsStageExpandedDialogOpen(true);
+  };
+
   // Group opportunities by stage
   const opportunitiesByStage = stages.reduce((acc, stage) => {
     acc[stage.id] = opportunities.filter(opp => opp.stage_id === stage.id);
@@ -889,16 +881,39 @@ export default function PipelinePage() {
                   {selectedCount} contact{selectedCount !== 1 ? 's' : ''} selected
                 </Badge>
                 <p className="text-sm text-blue-800">
-                  Drag selected contacts to a stage or click to deselect
+                  Drag selected contacts to a stage or use actions below
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedContacts(new Set())}
-              >
-                Clear Selection
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm(`Remove ${selectedCount} contact${selectedCount !== 1 ? 's' : ''} from pipeline?`)) {
+                      const contactIds = Array.from(selectedContacts);
+                      Promise.all(
+                        contactIds.map(id => removeOpportunityMutation.mutateAsync(id))
+                      ).then(() => {
+                        setSelectedContacts(new Set());
+                        toast({ 
+                          title: 'Contacts removed',
+                          description: `${selectedCount} contact${selectedCount !== 1 ? 's' : ''} removed from pipeline`
+                        });
+                      });
+                    }
+                  }}
+                >
+                  <Trash2 className="mr-2 w-4 h-4" />
+                  Remove Selected
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedContacts(new Set())}
+                >
+                  Clear Selection
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -928,13 +943,16 @@ export default function PipelinePage() {
                 >
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
-                      <div className="flex-1">
+                      <div 
+                        className="flex-1 cursor-pointer hover:opacity-75 transition-opacity"
+                        onClick={() => handleExpandStage(stage)}
+                      >
                         <CardTitle className="text-lg flex items-center gap-2">
                           <div 
                             className="w-3 h-3 rounded-full" 
                             style={{ backgroundColor: stage.color }}
                           />
-                          {stage.name}
+                          <span className="truncate">{stage.name}</span>
                           {stage.is_default && (
                             <Badge variant="outline" className="text-xs">
                               Default
@@ -942,7 +960,7 @@ export default function PipelinePage() {
                           )}
                         </CardTitle>
                         {stage.description && (
-                          <CardDescription className="mt-1 text-xs">
+                          <CardDescription className="mt-1 text-xs truncate">
                             {stage.description}
                           </CardDescription>
                         )}
@@ -950,7 +968,10 @@ export default function PipelinePage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleEditStage(stage)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditStage(stage);
+                        }}
                         className="h-8 w-8 p-0"
                       >
                         <Settings className="w-4 h-4" />
@@ -1012,11 +1033,6 @@ export default function PipelinePage() {
                             onMove={() => {
                               setSelectedOpportunity(opp);
                               setIsMoveDialogOpen(true);
-                            }}
-                            onRemove={() => {
-                              if (confirm(`Remove ${opp.sender_name || 'this contact'} from pipeline?`)) {
-                                removeOpportunityMutation.mutate(opp.id);
-                              }
                             }}
                           />
                         ))
@@ -1339,6 +1355,170 @@ export default function PipelinePage() {
               </>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expanded Stage View Dialog */}
+      <Dialog open={isStageExpandedDialogOpen} onOpenChange={setIsStageExpandedDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh]">
+          {expandedStage && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-6 h-6 rounded-full flex-shrink-0" 
+                    style={{ backgroundColor: expandedStage.color }}
+                  />
+                  <div className="flex-1">
+                    <DialogTitle className="text-2xl">{expandedStage.name}</DialogTitle>
+                    {expandedStage.description && (
+                      <DialogDescription className="mt-1">
+                        {expandedStage.description}
+                      </DialogDescription>
+                    )}
+                  </div>
+                  {expandedStage.is_default && (
+                    <Badge variant="outline">Default</Badge>
+                  )}
+                </div>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Stats and Actions */}
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Contacts</p>
+                      <p className="text-2xl font-bold">
+                        {(opportunitiesByStage[expandedStage.id] || []).length}
+                      </p>
+                    </div>
+                    <div className="h-12 w-px bg-border" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">AI Analyzed</p>
+                      <p className="text-2xl font-bold">
+                        {(opportunitiesByStage[expandedStage.id] || []).filter(o => o.ai_analyzed_at).length}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        handleAddContact(expandedStage.id);
+                        setIsStageExpandedDialogOpen(false);
+                      }}
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Add Contact
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        handleEditStage(expandedStage);
+                        setIsStageExpandedDialogOpen(false);
+                      }}
+                    >
+                      <Settings className="w-4 h-4 mr-2" />
+                      Edit Stage
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search contacts in this stage..."
+                    value={stageSearchQueries[expandedStage.id] || ''}
+                    onChange={(e) => handleStageSearch(expandedStage.id, e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Contacts List */}
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                  {(() => {
+                    const stageOpps = opportunitiesByStage[expandedStage.id] || [];
+                    const filteredOpps = filterOpportunitiesBySearch(stageOpps, expandedStage.id);
+                    
+                    return filteredOpps.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">
+                          {stageSearchQueries[expandedStage.id] 
+                            ? 'No contacts match your search'
+                            : 'No contacts in this stage'
+                          }
+                        </p>
+                      </div>
+                    ) : (
+                      filteredOpps.map((opp) => (
+                        <div
+                          key={opp.id}
+                          className="p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={selectedContacts.has(opp.id)}
+                              onCheckedChange={() => toggleContactSelection(opp.id)}
+                            />
+                            <Avatar className="w-10 h-10">
+                              <AvatarFallback>
+                                {(opp.sender_name || 'U')[0].toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium">{opp.sender_name || 'Unknown'}</p>
+                              {opp.conversation.last_message && (
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {opp.conversation.last_message}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-2 mt-2">
+                                {opp.ai_analyzed_at && (
+                                  <Badge 
+                                    variant={opp.both_prompts_agreed ? "default" : "secondary"}
+                                    className="text-xs"
+                                  >
+                                    {opp.both_prompts_agreed ? '✓ Agreed' : '⚠ Manual'}
+                                  </Badge>
+                                )}
+                                {opp.manually_assigned && (
+                                  <Badge variant="outline" className="text-xs">Manual</Badge>
+                                )}
+                                {opp.ai_confidence_score !== null && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {Math.round(opp.ai_confidence_score * 100)}% confidence
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground">
+                                  Added {format(new Date(opp.moved_to_stage_at), 'MMM dd, yyyy')}
+                                </span>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedOpportunity(opp);
+                                setIsMoveDialogOpen(true);
+                                setIsStageExpandedDialogOpen(false);
+                              }}
+                            >
+                              <MoveRight className="w-4 h-4 mr-2" />
+                              Move
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    );
+                  })()}
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       </div>
