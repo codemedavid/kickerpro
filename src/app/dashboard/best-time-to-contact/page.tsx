@@ -69,6 +69,7 @@ export default function BestTimeToContactPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('composite_score');
   const [minConfidence, setMinConfidence] = useState('0');
+  const [itemsPerPage, setItemsPerPage] = useState('50');
   const [pagination, setPagination] = useState({
     total: 0,
     limit: 50,
@@ -78,13 +79,32 @@ export default function BestTimeToContactPage() {
 
   useEffect(() => {
     fetchRecommendations();
-  }, [sortBy, minConfidence, pagination.offset]);
+  }, [sortBy, minConfidence, pagination.offset, itemsPerPage]);
+
+  // Auto-compute if no recommendations exist
+  useEffect(() => {
+    const checkAndAutoCompute = async () => {
+      if (!loading && recommendations.length === 0 && pagination.total === 0 && !computing) {
+        // Check if there are conversations to compute
+        const checkResponse = await fetch('/api/conversations?limit=1');
+        const checkData = await checkResponse.json();
+        
+        if (checkData.conversations && checkData.conversations.length > 0) {
+          toast.info('No contact timing data found. Computing now...');
+          await handleComputeAll();
+        }
+      }
+    };
+
+    checkAndAutoCompute();
+  }, [loading, recommendations.length, pagination.total]);
 
   const fetchRecommendations = async () => {
     try {
       setLoading(true);
+      const limit = parseInt(itemsPerPage, 10);
       const params = new URLSearchParams({
-        limit: pagination.limit.toString(),
+        limit: limit.toString(),
         offset: pagination.offset.toString(),
         sort_by: sortBy,
         sort_order: 'desc',
@@ -258,7 +278,7 @@ export default function BestTimeToContactPage() {
           <CardDescription>Refine your contact recommendations</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="flex gap-2">
               <Input
                 placeholder="Search contacts..."
@@ -297,10 +317,28 @@ export default function BestTimeToContactPage() {
               </SelectContent>
             </Select>
 
+            <Select value={itemsPerPage} onValueChange={(value) => {
+              setItemsPerPage(value);
+              setPagination(prev => ({ ...prev, offset: 0, limit: parseInt(value, 10) }));
+            }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Per page" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10 per page</SelectItem>
+                <SelectItem value="25">25 per page</SelectItem>
+                <SelectItem value="50">50 per page</SelectItem>
+                <SelectItem value="100">100 per page</SelectItem>
+                <SelectItem value="200">200 per page</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Button variant="outline" onClick={() => {
               setSearchTerm('');
               setSortBy('composite_score');
               setMinConfidence('0');
+              setItemsPerPage('50');
+              setPagination(prev => ({ ...prev, offset: 0, limit: 50 }));
               fetchRecommendations();
             }}>
               Reset Filters

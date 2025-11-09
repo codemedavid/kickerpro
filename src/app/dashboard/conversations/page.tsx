@@ -694,9 +694,15 @@ export default function ConversationsPage() {
 
       const result = await pipelineResponse.json();
 
+      // Show appropriate message based on whether AI analysis ran
+      const description = result.ai_analyzed
+        ? `${result.added} contact${result.added !== 1 ? 's' : ''} added and automatically sorted to appropriate stages${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}!`
+        : `${result.added} contact${result.added !== 1 ? 's' : ''} added to pipeline${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}. Set up pipeline settings to enable automatic stage sorting.`;
+
       toast({
-        title: "Added to Pipeline",
-        description: `${result.added} contact${result.added !== 1 ? 's' : ''} added to pipeline${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}`,
+        title: result.ai_analyzed ? "✨ Added & Sorted!" : "Added to Pipeline",
+        description,
+        duration: result.ai_analyzed ? 5000 : 3000,
       });
 
       // Navigate to pipeline page

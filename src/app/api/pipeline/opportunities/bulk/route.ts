@@ -144,6 +144,55 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('pipeline_stage_history')
         .insert(historyEntries);
+
+      // Automatically trigger AI analysis to sort contacts into appropriate stages
+      console.log('[Pipeline Bulk API] Triggering automatic AI analysis for', insertedOpps.length, 'new contacts');
+      
+      try {
+        // Check if user has pipeline settings configured
+        const { data: settings } = await supabase
+          .from('pipeline_settings')
+          .select('global_analysis_prompt')
+          .eq('user_id', userId)
+          .single();
+
+        if (settings?.global_analysis_prompt) {
+          // User has settings configured, trigger AI analysis
+          const opportunityIds = insertedOpps.map(opp => opp.id);
+          
+          // Call the analyze endpoint internally
+          const analyzeResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/pipeline/analyze`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cookie': request.headers.get('cookie') || ''
+            },
+            body: JSON.stringify({ opportunity_ids: opportunityIds })
+          });
+
+          if (analyzeResponse.ok) {
+            const analyzeResult = await analyzeResponse.json();
+            console.log('[Pipeline Bulk API] ✅ AI analysis completed:', analyzeResult.analyzed, 'contacts analyzed');
+            
+            return NextResponse.json({
+              success: true,
+              message: `Added ${opportunitiesToInsert.length} contact(s) to pipeline and automatically sorted to stages`,
+              added: opportunitiesToInsert.length,
+              skipped: existingConvIds.size,
+              opportunities: insertedOpps,
+              ai_analyzed: true,
+              analysis_results: analyzeResult.results
+            });
+          } else {
+            console.warn('[Pipeline Bulk API] AI analysis failed, contacts added to Unmatched stage');
+          }
+        } else {
+          console.log('[Pipeline Bulk API] No pipeline settings configured, skipping AI analysis');
+        }
+      } catch (error) {
+        console.error('[Pipeline Bulk API] Error during automatic AI analysis:', error);
+        // Continue without AI analysis - contacts will remain in Unmatched stage
+      }
     }
 
     return NextResponse.json({
@@ -151,7 +200,8 @@ export async function POST(request: NextRequest) {
       message: `Added ${opportunitiesToInsert.length} contact(s) to pipeline`,
       added: opportunitiesToInsert.length,
       skipped: existingConvIds.size,
-      opportunities: insertedOpps
+      opportunities: insertedOpps,
+      ai_analyzed: false
     });
   } catch (error) {
     console.error('[Pipeline Bulk API] Error:', error);
