@@ -10,7 +10,9 @@ import {
   DollarSign,
   Percent,
   Calendar as CalendarIcon,
-  Users
+  Users,
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -66,6 +68,9 @@ export default function BulkCreateOpportunitiesPage() {
     probability: '50',
     expectedCloseDate: ''
   });
+  const [useAIClassification, setUseAIClassification] = useState(false);
+  const [classificationResults, setClassificationResults] = useState<any[]>([]);
+  const [isClassifying, setIsClassifying] = useState(false);
 
   // Load contacts from sessionStorage on mount
   useEffect(() => {
@@ -172,13 +177,60 @@ export default function BulkCreateOpportunitiesPage() {
     }
   });
 
+  const handleAIClassification = async () => {
+    setIsClassifying(true);
+    
+    try {
+      // Get conversation IDs from contacts
+      const contactsWithIds = sessionStorage.getItem('opportunityContactsFull');
+      if (!contactsWithIds) {
+        throw new Error('Contact data not found');
+      }
+
+      const fullContacts = JSON.parse(contactsWithIds);
+      const conversationIds = fullContacts.map((c: any) => c.id);
+
+      const response = await fetch('/api/ai/classify-stage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationIds,
+          pageId: contacts[0]?.page_id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to classify stages');
+      }
+
+      const data = await response.json();
+      setClassificationResults(data.classifications);
+      setUseAIClassification(true);
+      
+      toast({
+        title: "AI Classification Complete!",
+        description: `Analyzed ${data.analyzed} conversations and assigned pipeline stages.`,
+        duration: 4000
+      });
+
+    } catch (error) {
+      toast({
+        title: "Classification Error",
+        description: error instanceof Error ? error.message : 'Failed to classify',
+        variant: "destructive"
+      });
+    } finally {
+      setIsClassifying(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!bulkFormData.stageId) {
+    if (!useAIClassification && !bulkFormData.stageId) {
       toast({
         title: "Validation Error",
-        description: "Please select a pipeline stage.",
+        description: "Please select a pipeline stage or use AI classification.",
         variant: "destructive"
       });
       return;
@@ -194,19 +246,32 @@ export default function BulkCreateOpportunitiesPage() {
     }
 
     // Create opportunities from contacts
-    const opportunities = contacts.map(contact => ({
-      title: bulkFormData.titleTemplate.replace('{name}', contact.sender_name),
-      description: `Opportunity created from conversation with ${contact.sender_name}`,
-      contact_name: contact.sender_name,
-      contact_id: contact.sender_id,
-      page_id: '', // Will be set on backend from contact page_id
-      stage_id: bulkFormData.stageId,
-      value: parseFloat(bulkFormData.value),
-      currency: bulkFormData.currency,
-      probability: parseInt(bulkFormData.probability),
-      expected_close_date: bulkFormData.expectedCloseDate || null,
-      status: 'open' as const
-    }));
+    const opportunities = contacts.map((contact, index) => {
+      // Find AI classification for this contact if available
+      const aiClassification = classificationResults.find(
+        r => r.contactName === contact.sender_name
+      );
+
+      return {
+        title: bulkFormData.titleTemplate.replace('{name}', contact.sender_name),
+        description: aiClassification 
+          ? `${aiClassification.reasoning}` 
+          : `Opportunity created from conversation with ${contact.sender_name}`,
+        contact_name: contact.sender_name,
+        contact_id: contact.sender_id,
+        page_id: contact.page_id,
+        stage_id: useAIClassification && aiClassification 
+          ? aiClassification.recommendedStageId 
+          : bulkFormData.stageId,
+        value: parseFloat(bulkFormData.value),
+        currency: bulkFormData.currency,
+        probability: useAIClassification && aiClassification
+          ? aiClassification.probability
+          : parseInt(bulkFormData.probability),
+        expected_close_date: bulkFormData.expectedCloseDate || null,
+        status: 'open' as const
+      };
+    });
 
     createMutation.mutate(opportunities);
   };
@@ -244,14 +309,77 @@ export default function BulkCreateOpportunitiesPage() {
       </Card>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* AI Classification Section */}
+        <Card className="border-2 border-dashed border-purple-300 bg-purple-50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-lg flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-600" />
+                  AI-Powered Stage Classification
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Let AI analyze each conversation and assign the best pipeline stage automatically
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={handleAIClassification}
+                disabled={isClassifying || useAIClassification}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isClassifying ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : useAIClassification ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Classified
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Classify with AI
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {useAIClassification && classificationResults.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">AI Recommendations:</p>
+                <div className="max-h-60 overflow-y-auto space-y-1">
+                  {classificationResults.slice(0, 10).map((result, i) => (
+                    <div key={i} className="text-xs bg-white p-2 rounded border">
+                      <span className="font-medium">{result.contactName}</span>
+                      {' → '}
+                      <span className="text-purple-600">{result.recommendedStageName}</span>
+                      {' '}
+                      <span className="text-gray-500">({result.probability}%)</span>
+                    </div>
+                  ))}
+                  {classificationResults.length > 10 && (
+                    <p className="text-xs text-gray-500 italic">
+                      ...and {classificationResults.length - 10} more
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Stage Selection */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pipeline Stage</CardTitle>
-            <CardDescription>Select the initial stage for all opportunities</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Label htmlFor="stage">Stage *</Label>
+        {!useAIClassification && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Pipeline Stage</CardTitle>
+              <CardDescription>Select the initial stage for all opportunities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Label htmlFor="stage">Stage *</Label>
             {stagesLoading ? (
               <Skeleton className="h-10 mt-2" />
             ) : (
@@ -279,8 +407,9 @@ export default function BulkCreateOpportunitiesPage() {
                 </SelectContent>
               </Select>
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Opportunity Details */}
         <Card>

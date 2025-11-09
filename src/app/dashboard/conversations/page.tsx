@@ -16,7 +16,12 @@ import {
   TrendingUp,
   Tag as TagIcon,
   Plus,
-  X
+  X,
+  Target,
+  Flame,
+  Snowflake,
+  AlertCircle,
+  DollarSign
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -92,6 +97,8 @@ export default function ConversationsPage() {
   const [syncBaselineCount, setSyncBaselineCount] = useState(0);
   const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
+  const [isScoringLeads, setIsScoringLeads] = useState(false);
+  const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
 
@@ -542,6 +549,61 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
+  const handleScoreLeads = async () => {
+    if (selectedContacts.size === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select contacts to score.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setIsScoringLeads(true);
+    
+    try {
+      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
+      
+      const response = await fetch('/api/ai/score-leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationIds: Array.from(selectedContacts),
+          pageId: selectedPage?.id,
+          autoTag: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to score leads');
+      }
+
+      const data = await response.json();
+      
+      const hotCount = data.scores.filter((s: any) => s.quality === 'Hot').length;
+      const warmCount = data.scores.filter((s: any) => s.quality === 'Warm').length;
+      const coldCount = data.scores.filter((s: any) => s.quality === 'Cold').length;
+      
+      toast({
+        title: "Lead Scoring Complete!",
+        description: `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`,
+        duration: 5000
+      });
+      
+      // Refresh conversations to show new tags
+      await refetch();
+      
+    } catch (error) {
+      toast({
+        title: "Scoring Error",
+        description: error instanceof Error ? error.message : 'Failed to score leads',
+        variant: "destructive"
+      });
+    } finally {
+      setIsScoringLeads(false);
+    }
+  };
+
   const handleCreateOpportunities = () => {
     if (selectedContacts.size === 0) {
       toast({
@@ -567,11 +629,23 @@ export default function ConversationsPage() {
       ? null
       : pages.find(p => p.facebook_page_id === selectedPageId);
 
+    // Also store full conversation data for AI classification
+    const fullContactsData = selectedArray.map(sender_id => {
+      const conv = conversations.find(c => c.sender_id === sender_id);
+      return {
+        id: conv?.id || '',
+        sender_id,
+        sender_name: conv?.sender_name || `User ${sender_id.substring(0, 8)}`,
+        page_id: conv?.page_id || ''
+      };
+    });
+
     sessionStorage.setItem('opportunityContacts', JSON.stringify({
       contacts: contactsData,
       pageId: selectedPage?.id ?? null,
       facebookPageId: selectedPage?.facebook_page_id ?? null
     }));
+    sessionStorage.setItem('opportunityContactsFull', JSON.stringify(fullContactsData));
 
     toast({
       title: "Contacts Loaded",
@@ -708,6 +782,23 @@ export default function ConversationsPage() {
         <div className="flex gap-3">
           {selectedContacts.size > 0 && (
             <>
+              <Button 
+                onClick={handleScoreLeads}
+                disabled={isScoringLeads}
+                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg"
+              >
+                {isScoringLeads ? (
+                  <>
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                    Scoring {selectedContacts.size} lead{selectedContacts.size !== 1 ? 's' : ''}...
+                  </>
+                ) : (
+                  <>
+                    <Target className="mr-2 w-4 h-4" />
+                    Score {selectedContacts.size} Lead{selectedContacts.size !== 1 ? 's' : ''}
+                  </>
+                )}
+              </Button>
               <Button 
                 onClick={handleSendToSelected}
                 className="bg-green-600 hover:bg-green-700"
@@ -1000,6 +1091,91 @@ export default function ConversationsPage() {
                 onExceptChange={setExceptTagIds}
               />
             </div>
+          </div>
+
+          {/* Quick Lead Quality Filters */}
+          <div className="mt-4">
+            <Label className="mb-3 block">Quick Lead Quality Filters</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const tag = tags.find(t => t.name === '🔥 Hot Lead');
+                  if (tag) {
+                    setSelectedTagIds([tag.id]);
+                    setExceptTagIds([]);
+                  }
+                }}
+                className="border-red-300 hover:bg-red-50"
+              >
+                <Flame className="mr-1 w-3 h-3 text-red-500" />
+                Hot Leads Only
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const tag = tags.find(t => t.name === '🟠 Warm Lead');
+                  if (tag) {
+                    setSelectedTagIds([tag.id]);
+                    setExceptTagIds([]);
+                  }
+                }}
+                className="border-orange-300 hover:bg-orange-50"
+              >
+                <TrendingUp className="mr-1 w-3 h-3 text-orange-500" />
+                Warm Leads
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const tag = tags.find(t => t.name === '🟡 Cold Lead');
+                  if (tag) {
+                    setSelectedTagIds([tag.id]);
+                    setExceptTagIds([]);
+                  }
+                }}
+                className="border-yellow-300 hover:bg-yellow-50"
+              >
+                <Snowflake className="mr-1 w-3 h-3 text-yellow-500" />
+                Cold Leads
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const tag = tags.find(t => t.name === '💰 Price Shopper');
+                  if (tag) {
+                    setSelectedTagIds([]);
+                    setExceptTagIds([tag.id]);
+                  }
+                }}
+                className="border-purple-300 hover:bg-purple-50"
+              >
+                <DollarSign className="mr-1 w-3 h-3 text-purple-500" />
+                Exclude Price Shoppers
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const tag = tags.find(t => t.name === '⚪ Unqualified');
+                  if (tag) {
+                    setSelectedTagIds([]);
+                    setExceptTagIds([tag.id]);
+                  }
+                }}
+                className="border-gray-300 hover:bg-gray-50"
+              >
+                <AlertCircle className="mr-1 w-3 h-3 text-gray-500" />
+                Exclude Unqualified
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Click any button to quickly filter conversations by lead quality
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -142,6 +142,34 @@ export async function POST(request: NextRequest) {
       updated: updatedCount
     });
 
+    // Auto-score if enabled in settings (for new/updated conversations only)
+    try {
+      const { data: scoringSettings } = await supabase
+        .from('lead_scoring_settings')
+        .select('auto_score_on_sync')
+        .eq('user_id', userId)
+        .single();
+
+      if (scoringSettings?.auto_score_on_sync && syncedConversationIds.size > 0) {
+        console.log(`[Sync Conversations] Auto-scoring ${syncedConversationIds.size} conversations...`);
+        
+        // Trigger scoring asynchronously (don't wait for completion)
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/ai/score-leads`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationIds: Array.from(syncedConversationIds),
+            pageId: page.id,
+            autoTag: true
+          })
+        }).catch(err => {
+          console.warn('[Sync Conversations] Auto-scoring failed:', err);
+        });
+      }
+    } catch (settingsError) {
+      console.warn('[Sync Conversations] Could not check scoring settings:', settingsError);
+    }
+
     return NextResponse.json({
       success: true,
       synced: uniqueSynced,
