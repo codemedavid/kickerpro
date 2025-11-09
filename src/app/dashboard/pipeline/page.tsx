@@ -14,7 +14,11 @@ import {
   Calendar,
   ChevronRight,
   MoveRight,
-  Trash2
+  Trash2,
+  Search,
+  X,
+  UserPlus,
+  GripVertical
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,6 +32,23 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+  DragOverEvent,
+  useDroppable,
+  useDraggable,
+} from '@dnd-kit/core';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { Checkbox } from '@/components/ui/checkbox';
+import { CSS } from '@dnd-kit/utilities';
 
 interface PipelineStage {
   id: string;
@@ -74,6 +95,148 @@ const COLOR_OPTIONS = [
   { value: '#94a3b8', label: 'Gray' }
 ];
 
+// Droppable stage zone component
+function DroppableStageZone({ 
+  children, 
+  stageId, 
+  isOver 
+}: { 
+  children: React.ReactNode; 
+  stageId: string;
+  isOver: boolean;
+}) {
+  const { setNodeRef } = useDroppable({
+    id: `stage-${stageId}`,
+  });
+
+  return (
+    <div 
+      ref={setNodeRef}
+      className={`space-y-2 max-h-96 overflow-y-auto min-h-[100px] p-2 rounded-lg ${
+        isOver ? 'bg-blue-50' : ''
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// Draggable contact card component
+function DraggableContactCard({
+  opportunity,
+  isSelected,
+  isDragging,
+  onToggleSelect,
+  onMove,
+  onRemove,
+}: {
+  opportunity: PipelineOpportunity;
+  isSelected: boolean;
+  isDragging: boolean;
+  onToggleSelect: () => void;
+  onMove: () => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    id: opportunity.id,
+  });
+
+  const style = transform ? {
+    transform: CSS.Translate.toString(transform),
+  } : undefined;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`p-3 rounded-lg border bg-card transition-all ${
+        isDragging ? 'opacity-50' : ''
+      } ${
+        isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:shadow-md'
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={onToggleSelect}
+          className="mt-1"
+          onClick={(e) => e.stopPropagation()}
+        />
+        <div
+          {...listeners}
+          {...attributes}
+          className="cursor-grab active:cursor-grabbing flex-shrink-0"
+        >
+          <GripVertical className="w-4 h-4 text-muted-foreground" />
+        </div>
+        <Avatar className="w-8 h-8">
+          <AvatarFallback>
+            {(opportunity.sender_name || 'U')[0].toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm truncate">
+            {opportunity.sender_name || 'Unknown'}
+          </p>
+          {opportunity.conversation.last_message && (
+            <p className="text-xs text-muted-foreground truncate">
+              {opportunity.conversation.last_message}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-1">
+            {opportunity.ai_analyzed_at && (
+              <Badge 
+                variant={opportunity.both_prompts_agreed ? "default" : "secondary"}
+                className="text-xs"
+              >
+                {opportunity.both_prompts_agreed ? (
+                  <>✓ Agreed</>
+                ) : (
+                  <>⚠ Manual</>
+                )}
+              </Badge>
+            )}
+            {opportunity.manually_assigned && (
+              <Badge variant="outline" className="text-xs">
+                Manual
+              </Badge>
+            )}
+            {opportunity.ai_confidence_score !== null && (
+              <span className="text-xs text-muted-foreground">
+                {Math.round(opportunity.ai_confidence_score * 100)}%
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMove();
+            }}
+          >
+            <MoveRight className="w-3 h-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PipelinePage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -86,6 +249,16 @@ export default function PipelinePage() {
   const [editingStage, setEditingStage] = useState<PipelineStage | null>(null);
   const [selectedOpportunity, setSelectedOpportunity] = useState<PipelineOpportunity | null>(null);
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
+  const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
+  const [selectedStageForAdd, setSelectedStageForAdd] = useState<string | null>(null);
+  
+  // Search states per stage
+  const [stageSearchQueries, setStageSearchQueries] = useState<Record<string, string>>({});
+  
+  // Multi-select and drag states
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   // Form states
   const [stageName, setStageName] = useState('');
@@ -93,6 +266,18 @@ export default function PipelinePage() {
   const [stageColor, setStageColor] = useState('#3b82f6');
   const [stagePrompt, setStagePrompt] = useState('');
   const [globalPrompt, setGlobalPrompt] = useState('');
+  
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Fetch pipeline settings
   const { data: settingsData } = useQuery<{ settings: PipelineSettings; isNew: boolean }>({
@@ -252,6 +437,97 @@ export default function PipelinePage() {
     }
   });
 
+  // Batch move opportunities mutation
+  const batchMoveOpportunitiesMutation = useMutation({
+    mutationFn: async (data: { opportunityIds: string[]; stageId: string }) => {
+      const results = await Promise.all(
+        data.opportunityIds.map(async (opportunityId) => {
+          const response = await fetch(`/api/pipeline/opportunities/${opportunityId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage_id: data.stageId, manually_assigned: true })
+          });
+          if (!response.ok) {
+            throw new Error('Failed to move opportunity');
+          }
+          return response.json();
+        })
+      );
+      return results;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-opportunities'] });
+      toast({ 
+        title: 'Contacts moved successfully',
+        description: `${variables.opportunityIds.length} contact${variables.opportunityIds.length !== 1 ? 's' : ''} moved`
+      });
+      setSelectedContacts(new Set());
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  });
+
+  // Remove opportunity mutation
+  const removeOpportunityMutation = useMutation({
+    mutationFn: async (opportunityId: string) => {
+      const response = await fetch(`/api/pipeline/opportunities/${opportunityId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to remove contact');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-opportunities'] });
+      toast({ title: 'Contact removed from pipeline' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  });
+
+  // Fetch available conversations to add
+  const { data: conversationsData } = useQuery<{ conversations: Array<{ 
+    id: string; 
+    sender_id: string; 
+    sender_name: string | null; 
+    last_message: string | null;
+  }> }>({
+    queryKey: ['available-conversations'],
+    queryFn: async () => {
+      const response = await fetch('/api/conversations?limit=100');
+      if (!response.ok) throw new Error('Failed to fetch conversations');
+      return response.json();
+    },
+    enabled: isAddContactDialogOpen && !!user?.id
+  });
+
+  // Add contact to pipeline mutation
+  const addContactToPipelineMutation = useMutation({
+    mutationFn: async (data: { conversationId: string; stageId: string }) => {
+      const response = await fetch('/api/pipeline/opportunities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add contact');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipeline-opportunities'] });
+      toast({ title: 'Contact added to pipeline' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  });
+
   const handleAnalyzeAll = async () => {
     if (!settingsData?.settings?.global_analysis_prompt) {
       toast({
@@ -371,20 +647,125 @@ export default function PipelinePage() {
     saveSettingsMutation.mutate({ global_analysis_prompt: globalPrompt });
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    setActiveId(active.id as string);
+    
+    // If dragging a contact that's not in the selection, clear selection and select only this one
+    if (!selectedContacts.has(active.id as string)) {
+      setSelectedContacts(new Set([active.id as string]));
+    }
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { over } = event;
+    setOverId(over?.id as string | null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (!over) {
+      setActiveId(null);
+      setOverId(null);
+      return;
+    }
+
+    // Check if dropping over a stage (stage IDs are in the format "stage-{stageId}")
+    const overStageId = (over.id as string).startsWith('stage-') 
+      ? (over.id as string).replace('stage-', '')
+      : null;
+
+    if (overStageId) {
+      // Get all selected opportunity IDs or just the active one
+      const contactsToMove = selectedContacts.size > 0 
+        ? Array.from(selectedContacts)
+        : [active.id as string];
+
+      // Move all selected contacts
+      if (contactsToMove.length > 1) {
+        batchMoveOpportunitiesMutation.mutate({
+          opportunityIds: contactsToMove,
+          stageId: overStageId
+        });
+      } else if (contactsToMove.length === 1) {
+        moveOpportunityMutation.mutate({
+          opportunityId: contactsToMove[0],
+          stageId: overStageId
+        });
+      }
+    }
+
+    setActiveId(null);
+    setOverId(null);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setOverId(null);
+  };
+
+  const toggleContactSelection = (opportunityId: string) => {
+    const newSelection = new Set(selectedContacts);
+    if (newSelection.has(opportunityId)) {
+      newSelection.delete(opportunityId);
+    } else {
+      newSelection.add(opportunityId);
+    }
+    setSelectedContacts(newSelection);
+  };
+
+  const handleStageSearch = (stageId: string, query: string) => {
+    setStageSearchQueries(prev => ({ ...prev, [stageId]: query }));
+  };
+
+  const filterOpportunitiesBySearch = (opps: PipelineOpportunity[], stageId: string) => {
+    const searchQuery = stageSearchQueries[stageId]?.toLowerCase() || '';
+    if (!searchQuery) return opps;
+    
+    return opps.filter(opp => 
+      opp.sender_name?.toLowerCase().includes(searchQuery) ||
+      opp.conversation.last_message?.toLowerCase().includes(searchQuery)
+    );
+  };
+
+  const handleAddContact = (stageId: string) => {
+    setSelectedStageForAdd(stageId);
+    setIsAddContactDialogOpen(true);
+  };
+
   // Group opportunities by stage
   const opportunitiesByStage = stages.reduce((acc, stage) => {
     acc[stage.id] = opportunities.filter(opp => opp.stage_id === stage.id);
     return acc;
   }, {} as Record<string, PipelineOpportunity[]>);
 
+  // Available conversations to add (exclude ones already in pipeline)
+  const availableConversations = conversationsData?.conversations.filter(
+    conv => !opportunities.some(opp => opp.conversation_id === conv.id)
+  ) || [];
+
   const totalContacts = opportunities.length;
   const analyzedCount = opportunities.filter(o => o.ai_analyzed_at).length;
   const agreedCount = opportunities.filter(o => o.both_prompts_agreed).length;
 
+  // Get active opportunity for drag overlay
+  const activeOpportunity = activeId ? opportunities.find(o => o.id === activeId) : null;
+  const selectedCount = selectedContacts.size;
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <GitBranch className="w-8 h-8" />
@@ -498,6 +879,31 @@ export default function PipelinePage() {
         </Card>
       )}
 
+      {/* Selected contacts info banner */}
+      {selectedCount > 0 && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge variant="default" className="bg-blue-600">
+                  {selectedCount} contact{selectedCount !== 1 ? 's' : ''} selected
+                </Badge>
+                <p className="text-sm text-blue-800">
+                  Drag selected contacts to a stage or click to deselect
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedContacts(new Set())}
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Pipeline Stages */}
       {stagesLoading || oppsLoading ? (
         <div className="flex justify-center py-12">
@@ -506,113 +912,153 @@ export default function PipelinePage() {
       ) : stages.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {stages.map((stage) => {
-            const stageOpportunities = opportunitiesByStage[stage.id] || [];
+            const allStageOpportunities = opportunitiesByStage[stage.id] || [];
+            const filteredOpportunities = filterOpportunitiesBySearch(allStageOpportunities, stage.id);
+            const isOverStage = overId === `stage-${stage.id}`;
             
             return (
-              <Card key={stage.id} className="border-2" style={{ borderColor: stage.color }}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <div 
-                          className="w-3 h-3 rounded-full" 
-                          style={{ backgroundColor: stage.color }}
-                        />
-                        {stage.name}
-                        {stage.is_default && (
-                          <Badge variant="outline" className="text-xs">
-                            Default
-                          </Badge>
+              <div
+                key={stage.id}
+                id={`stage-${stage.id}`}
+                className={`transition-all ${isOverStage ? 'scale-105' : ''}`}
+              >
+                <Card 
+                  className={`border-2 ${isOverStage ? 'ring-4 ring-blue-400' : ''}`}
+                  style={{ borderColor: isOverStage ? '#3b82f6' : stage.color }}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: stage.color }}
+                          />
+                          {stage.name}
+                          {stage.is_default && (
+                            <Badge variant="outline" className="text-xs">
+                              Default
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        {stage.description && (
+                          <CardDescription className="mt-1 text-xs">
+                            {stage.description}
+                          </CardDescription>
                         )}
-                      </CardTitle>
-                      {stage.description && (
-                        <CardDescription className="mt-1 text-xs">
-                          {stage.description}
-                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEditStage(stage)}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant="secondary">
+                        {allStageOpportunities.length} contact{allStageOpportunities.length !== 1 ? 's' : ''}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleAddContact(stage.id)}
+                        className="h-7 px-2"
+                      >
+                        <UserPlus className="w-3 h-3 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+                    
+                    {/* Search bar */}
+                    <div className="mt-3 relative">
+                      <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input
+                        placeholder="Search contacts..."
+                        value={stageSearchQueries[stage.id] || ''}
+                        onChange={(e) => handleStageSearch(stage.id, e.target.value)}
+                        className="pl-7 pr-7 h-8 text-xs"
+                      />
+                      {stageSearchQueries[stage.id] && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
+                          onClick={() => handleStageSearch(stage.id, '')}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditStage(stage)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge variant="secondary">
-                      {stageOpportunities.length} contact{stageOpportunities.length !== 1 ? 's' : ''}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {stageOpportunities.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No contacts in this stage
-                      </p>
-                    ) : (
-                      stageOpportunities.map((opp) => (
-                        <div
-                          key={opp.id}
-                          className="p-3 rounded-lg border bg-card hover:shadow-md transition-shadow cursor-pointer"
-                          onClick={() => {
-                            setSelectedOpportunity(opp);
-                            setIsMoveDialogOpen(true);
-                          }}
-                        >
-                          <div className="flex items-start gap-2">
-                            <Avatar className="w-8 h-8">
-                              <AvatarFallback>
-                                {(opp.sender_name || 'U')[0].toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-sm truncate">
-                                {opp.sender_name || 'Unknown'}
-                              </p>
-                              {opp.conversation.last_message && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {opp.conversation.last_message}
-                                </p>
-                              )}
-                              <div className="flex items-center gap-2 mt-1">
-                                {opp.ai_analyzed_at && (
-                                  <Badge 
-                                    variant={opp.both_prompts_agreed ? "default" : "secondary"}
-                                    className="text-xs"
-                                  >
-                                    {opp.both_prompts_agreed ? (
-                                      <>✓ Agreed</>
-                                    ) : (
-                                      <>⚠ Manual</>
-                                    )}
-                                  </Badge>
-                                )}
-                                {opp.manually_assigned && (
-                                  <Badge variant="outline" className="text-xs">
-                                    Manual
-                                  </Badge>
-                                )}
-                                {opp.ai_confidence_score !== null && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {Math.round(opp.ai_confidence_score * 100)}%
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <DroppableStageZone stageId={stage.id} isOver={isOverStage}>
+                      {filteredOpportunities.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          {stageSearchQueries[stage.id] 
+                            ? 'No contacts match your search'
+                            : 'No contacts in this stage'
+                          }
+                        </p>
+                      ) : (
+                        filteredOpportunities.map((opp) => (
+                          <DraggableContactCard
+                            key={opp.id}
+                            opportunity={opp}
+                            isSelected={selectedContacts.has(opp.id)}
+                            isDragging={activeId === opp.id}
+                            onToggleSelect={() => toggleContactSelection(opp.id)}
+                            onMove={() => {
+                              setSelectedOpportunity(opp);
+                              setIsMoveDialogOpen(true);
+                            }}
+                            onRemove={() => {
+                              if (confirm(`Remove ${opp.sender_name || 'this contact'} from pipeline?`)) {
+                                removeOpportunityMutation.mutate(opp.id);
+                              }
+                            }}
+                          />
+                        ))
+                      )}
+                    </DroppableStageZone>
+                  </CardContent>
+                </Card>
+              </div>
             );
           })}
         </div>
       ) : null}
+
+      {/* Drag Overlay */}
+      <DragOverlay>
+        {activeOpportunity ? (
+          <Card className="w-72 border-2 border-blue-500 shadow-2xl">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2">
+                {selectedCount > 1 ? (
+                  <Badge className="bg-blue-600">
+                    {selectedCount} contacts
+                  </Badge>
+                ) : (
+                  <>
+                    <Avatar className="w-8 h-8">
+                      <AvatarFallback>
+                        {(activeOpportunity.sender_name || 'U')[0].toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">
+                        {activeOpportunity.sender_name || 'Unknown'}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </DragOverlay>
 
       {/* Pipeline Settings Dialog */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
@@ -818,7 +1264,85 @@ export default function PipelinePage() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+
+      {/* Add Contact to Pipeline Dialog */}
+      <Dialog open={isAddContactDialogOpen} onOpenChange={setIsAddContactDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Contact to Pipeline</DialogTitle>
+            <DialogDescription>
+              Select a contact from your conversations to add to this stage
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {availableConversations.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-2">
+                  All your conversations are already in the pipeline
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/dashboard/conversations')}
+                >
+                  Go to Conversations
+                </Button>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {availableConversations.length} conversation{availableConversations.length !== 1 ? 's' : ''} available
+                </p>
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {availableConversations.map((conv) => (
+                    <div
+                      key={conv.id}
+                      className="p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarFallback>
+                            {(conv.sender_name || 'U')[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">
+                            {conv.sender_name || 'Unknown'}
+                          </p>
+                          {conv.last_message && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {conv.last_message}
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (selectedStageForAdd) {
+                              addContactToPipelineMutation.mutate({
+                                conversationId: conv.id,
+                                stageId: selectedStageForAdd
+                              });
+                            }
+                          }}
+                          disabled={addContactToPipelineMutation.isPending}
+                        >
+                          {addContactToPipelineMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Add'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      </div>
+    </DndContext>
   );
 }
 
