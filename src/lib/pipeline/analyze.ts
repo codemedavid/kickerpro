@@ -130,8 +130,9 @@ export async function analyzePipelineOpportunities(
       try {
         // For now, use a simple conversation history from the database
         // In a full implementation, you could fetch more messages from Facebook API
-        const conversationHistory = opp.conversation?.last_message 
-          ? `Last message: ${opp.conversation.last_message}`
+        const conversation = Array.isArray(opp.conversation) ? opp.conversation[0] : opp.conversation;
+        const conversationHistory = conversation?.last_message 
+          ? `Last message: ${conversation.last_message}`
           : 'No message history available.';
 
         // Step 1: Global Analysis
