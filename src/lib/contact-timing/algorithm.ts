@@ -326,8 +326,8 @@ export function selectTopWindows(
 ): RecommendedWindow[] {
   // Sort bins by probability (or sampled value if exploring)
   const sortedBins = [...bins].sort((a, b) => {
-    const scoreA = useExploration ? a.last_sample : a.smoothed_probability;
-    const scoreB = useExploration ? b.last_sample : b.smoothed_probability;
+    const scoreA = useExploration ? (a.last_sample ?? a.smoothed_probability) : a.smoothed_probability;
+    const scoreB = useExploration ? (b.last_sample ?? b.smoothed_probability) : b.smoothed_probability;
     return scoreB - scoreA;
   });
 
