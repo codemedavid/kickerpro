@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { resetAutomationStopsForTags } from '@/lib/automation/reset-stops';
 
 export async function GET(
   request: NextRequest,
@@ -136,6 +137,10 @@ export async function POST(
           { status: 500 }
         );
       }
+
+      // 🔄 Reset automation stops if any of these tags are trigger tags
+      // This allows automations to restart when tags are manually re-added
+      await resetAutomationStopsForTags([conversationId], tagIds);
     }
 
     return NextResponse.json({ success: true });
