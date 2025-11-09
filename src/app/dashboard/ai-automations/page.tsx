@@ -555,6 +555,11 @@ export default function AIAutomationsPage() {
                   <p className="text-sm text-muted-foreground">
                     Automatically stop following up if they respond
                   </p>
+                  {formData.stop_on_reply && formData.include_tag_ids.length > 0 && (
+                    <p className="text-xs text-green-600 mt-1 font-medium">
+                      ✓ Will auto-remove all trigger tags when they reply
+                    </p>
+                  )}
                 </div>
                 <Switch
                   checked={formData.stop_on_reply}
@@ -564,13 +569,15 @@ export default function AIAutomationsPage() {
 
               {/* Remove Tag on Reply */}
               <div className="space-y-2">
-                <Label>Auto-Remove Tag When Contact Replies (Optional)</Label>
+                <Label>Auto-Remove Additional Tag (Optional)</Label>
                 <TagSelector
                   selectedTagIds={formData.remove_tag_on_reply ? [formData.remove_tag_on_reply] : []}
                   onTagChange={(tagIds) => setFormData({ ...formData, remove_tag_on_reply: tagIds[0] || null })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Remove this tag and stop automation when they reply
+                  {formData.stop_on_reply 
+                    ? 'Trigger tags are already auto-removed. Use this for any additional tag.' 
+                    : 'Remove this specific tag when customer replies'}
                 </p>
               </div>
 

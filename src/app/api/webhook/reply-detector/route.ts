@@ -63,6 +63,33 @@ export async function POST(request: NextRequest) {
             continue;
           }
           
+          console.log(`[Reply Detector] ✅ Found conversation for ${senderPSID}`);
+          
+          // 🏷️ AUTO-REMOVE "AI" TAG when customer replies (universal behavior)
+          // This happens regardless of automation rules
+          try {
+            const { data: aiTag } = await supabase
+              .from('tags')
+              .select('id, name')
+              .ilike('name', 'AI')
+              .single();
+
+            if (aiTag) {
+              const { error: removeError } = await supabase
+                .from('conversation_tags')
+                .delete()
+                .eq('conversation_id', conversation.id)
+                .eq('tag_id', aiTag.id);
+
+              if (!removeError) {
+                console.log(`[Reply Detector] 🏷️✨ Auto-removed "AI" tag for ${senderPSID}`);
+              }
+            }
+          } catch (aiTagError) {
+            // Don't fail if AI tag doesn't exist or removal fails
+            console.log(`[Reply Detector] ℹ️ No "AI" tag found to remove (might not exist)`);
+          }
+          
           // Find active automation rules with stop_on_reply enabled
           const { data: activeRules } = await supabase
             .from('ai_automation_rules')
@@ -71,6 +98,7 @@ export async function POST(request: NextRequest) {
             .eq('stop_on_reply', true);
           
           if (!activeRules || activeRules.length === 0) {
+            console.log(`[Reply Detector] ℹ️ No rules with stop_on_reply enabled (AI tag already removed if present)`);
             continue;
           }
           
