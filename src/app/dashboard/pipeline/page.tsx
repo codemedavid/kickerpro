@@ -855,18 +855,40 @@ export default function PipelinePage() {
 
       {/* Setup Instructions */}
       {stages.length === 1 && stages[0]?.is_default && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
           <CardContent className="p-6">
-            <h3 className="font-semibold text-blue-900 mb-2">🚀 Get Started with Pipeline</h3>
-            <p className="text-sm text-blue-800 mb-3">
-              A default &quot;Unmatched&quot; stage has been created for you. Follow these steps to set up your pipeline:
-            </p>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
-              <li>Click &quot;Pipeline Settings&quot; to configure your global analysis instructions</li>
-              <li>Click &quot;Add Stage&quot; to create additional pipeline stages (e.g., Lead, Qualified, Won)</li>
-              <li>Go to Conversations page and select contacts to add to pipeline</li>
-              <li>Click &quot;Analyze All Contacts&quot; to let AI categorize them into stages</li>
-            </ol>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-2xl">
+                🚀
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-blue-900 text-lg mb-2">Get Started with Your Sales Pipeline</h3>
+                <p className="text-sm text-blue-800 mb-4">
+                  Your default <strong>&quot;Unmatched&quot;</strong> stage is ready! Contacts added to the pipeline will automatically go here until categorized.
+                </p>
+                <div className="bg-white/60 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold text-blue-900 mb-2">Quick Setup Guide:</p>
+                  <div className="space-y-2 text-sm text-blue-800">
+                    <div className="flex items-start gap-2">
+                      <span className="font-semibold">1.</span>
+                      <span>Click <strong>&quot;Pipeline Settings&quot;</strong> to configure global AI analysis</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-semibold">2.</span>
+                      <span>Click <strong>&quot;Add Stage&quot;</strong> to create stages (Lead, Qualified, Won)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-semibold">3.</span>
+                      <span>Go to <strong>Conversations</strong> and select contacts to add</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-semibold">4.</span>
+                      <span>Use <strong>&quot;Analyze All&quot;</strong> to let AI auto-categorize contacts</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -938,7 +960,7 @@ export default function PipelinePage() {
                 className={`transition-all ${isOverStage ? 'scale-105' : ''}`}
               >
                 <Card 
-                  className={`border-2 ${isOverStage ? 'ring-4 ring-blue-400' : ''}`}
+                  className={`border-2 ${isOverStage ? 'ring-4 ring-blue-400' : ''} ${stage.is_default ? 'bg-slate-50/50' : ''}`}
                   style={{ borderColor: isOverStage ? '#3b82f6' : stage.color }}
                 >
                   <CardHeader className="pb-3">
@@ -954,8 +976,8 @@ export default function PipelinePage() {
                           />
                           <span className="truncate">{stage.name}</span>
                           {stage.is_default && (
-                            <Badge variant="outline" className="text-xs">
-                              Default
+                            <Badge variant="outline" className="text-xs bg-slate-100 border-slate-300">
+                              📥 Default
                             </Badge>
                           )}
                         </CardTitle>
@@ -973,6 +995,7 @@ export default function PipelinePage() {
                           handleEditStage(stage);
                         }}
                         className="h-8 w-8 p-0"
+                        title="Edit stage settings"
                       >
                         <Settings className="w-4 h-4" />
                       </Button>
