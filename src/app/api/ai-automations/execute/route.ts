@@ -136,15 +136,35 @@ export async function POST() {
           filteredConversations = filteredConversations.filter(c => !excludeIds.has(c.id));
         }
 
-        // Check which ones haven't been processed recently
-        const { data: recentExecutions } = await supabase
-          .from('ai_automation_executions')
-          .select('conversation_id')
-          .eq('rule_id', rule.id)
-          .gte('created_at', hoursAgo.toISOString());
+        // Check which conversations are ready to be processed (cooldown period has passed)
+        const cooldownMs = intervalHours * 60 * 60 * 1000;
+        const toProcess = [];
+        
+        for (const conv of filteredConversations) {
+          // Get the most recent execution for this conversation
+          const { data: lastExecution } = await supabase
+            .from('ai_automation_executions')
+            .select('id, created_at')
+            .eq('rule_id', rule.id)
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        const processedIds = new Set(recentExecutions?.map(e => e.conversation_id) || []);
-        const toProcess = filteredConversations.filter(c => !processedIds.has(c.id));
+          if (lastExecution) {
+            const timeSinceLastExec = Date.now() - new Date(lastExecution.created_at).getTime();
+            
+            // Skip if still in cooldown period
+            if (timeSinceLastExec < cooldownMs) {
+              const minutesSince = Math.floor(timeSinceLastExec / 60000);
+              const minutesNeeded = Math.floor(cooldownMs / 60000);
+              console.log(`[AI Automation] Skipping ${conv.sender_name} - last processed ${minutesSince} minutes ago (needs ${minutesNeeded - minutesSince} more)`);
+              continue;
+            }
+          }
+          
+          toProcess.push(conv);
+        }
 
         if (toProcess.length === 0) {
           console.log(`[AI Automation] All conversations already processed for rule ${rule.name}`);

@@ -92,6 +92,8 @@ export async function GET(request: NextRequest) {
         console.log(`  Time Interval: ${rule.time_interval_minutes || rule.time_interval_hours * 60 || rule.time_interval_days * 1440} minutes`);
         console.log(`  Max Per Day: ${rule.max_messages_per_day}`);
         console.log(`  24/7 Mode: ${rule.run_24_7 ? 'YES' : 'NO'}`);
+        console.log(`  Include Tags: ${rule.include_tag_ids && rule.include_tag_ids.length > 0 ? rule.include_tag_ids.join(', ') : 'NONE (all conversations)'}`);
+        console.log(`  Exclude Tags: ${rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0 ? rule.exclude_tag_ids.join(', ') : 'NONE'}`);
 
         // Check if within active hours (unless 24/7 mode)
         if (!rule.run_24_7) {
@@ -215,7 +217,7 @@ export async function GET(request: NextRequest) {
 
           console.log(`    📊 Found ${allConversations.length} conversation(s) past time threshold`);
 
-          // Apply tag filters if specified (CRITICAL FIX: Use conversation_tags table)
+          // Apply tag filters if specified - ONLY process conversations with specific tags
           let conversations = allConversations;
 
           if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
@@ -227,12 +229,15 @@ export async function GET(request: NextRequest) {
 
             if (taggedConvs && taggedConvs.length > 0) {
               const taggedIds = new Set(taggedConvs.map(t => t.conversation_id));
+              const beforeCount = conversations.length;
               conversations = allConversations.filter(c => taggedIds.has(c.id));
-              console.log(`    🏷️  After INCLUDE tags filter: ${conversations.length} conversation(s) WITH required tags`);
+              console.log(`    🏷️  INCLUDE tags filter: ${beforeCount} → ${conversations.length} conversation(s) WITH required tags`);
             } else {
-              console.log(`    ⚠️  No conversations have the required tags: ${rule.include_tag_ids}`);
+              console.log(`    ⚠️  No conversations have the required tags - skipping page`);
               conversations = [];
             }
+          } else {
+            console.log(`    ℹ️  No include tags specified - processing ALL conversations`);
           }
 
           if (rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0 && conversations.length > 0) {
@@ -280,24 +285,32 @@ export async function GET(request: NextRequest) {
                 continue;
               }
 
-              // Check if already processed within the rule's time interval
-              // Use the same time threshold calculation as for finding eligible conversations
-              const cooldownMs = totalMinutes * 60 * 1000;
-              const { data: recentExecution } = await supabase
+              // Check if the LAST execution was MORE than the time interval ago
+              // This ensures we re-process contacts every time the interval finishes
+              const { data: lastExecution } = await supabase
                 .from('ai_automation_executions')
-                .select('id, created_at')
+                .select('id, created_at, status')
                 .eq('rule_id', rule.id)
                 .eq('conversation_id', conv.id)
-                .gte('created_at', new Date(Date.now() - cooldownMs).toISOString())
                 .order('created_at', { ascending: false })
                 .limit(1)
-                .single();
+                .maybeSingle();
 
-              if (recentExecution) {
-                const timeSinceExecution = Date.now() - new Date(recentExecution.created_at).getTime();
-                const minutesSince = Math.floor(timeSinceExecution / 60000);
-                console.log(`      ⏭️  Skipped - already processed ${minutesSince} minutes ago (interval: ${totalMinutes} minutes)`);
-                continue;
+              if (lastExecution) {
+                const timeSinceLastExecution = Date.now() - new Date(lastExecution.created_at).getTime();
+                const minutesSinceLastExecution = Math.floor(timeSinceLastExecution / 60000);
+                const cooldownMs = totalMinutes * 60 * 1000;
+
+                // If last execution was LESS than the interval time, skip (cooldown period)
+                if (timeSinceLastExecution < cooldownMs) {
+                  console.log(`      ⏭️  Skipped - last processed ${minutesSinceLastExecution} minutes ago (interval: ${totalMinutes} minutes, needs ${totalMinutes - minutesSinceLastExecution} more minutes)`);
+                  continue;
+                }
+                
+                // If last execution was MORE than the interval time ago, process it!
+                console.log(`      ✅ Ready to process - last execution was ${minutesSinceLastExecution} minutes ago (interval: ${totalMinutes} minutes)`);
+              } else {
+                console.log(`      ✅ Ready to process - never processed before`);
               }
 
               // Create execution record

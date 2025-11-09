@@ -186,13 +186,13 @@ export async function POST(request: NextRequest) {
           console.log(`[AI Automation Trigger] After exclude tags filter: ${filteredConversations.length}`);
         }
 
-        // Check which ones haven't been processed by this rule recently
-        // Get recent executions WITH their previous messages to ensure uniqueness
-        const { data: recentExecutions } = await supabase
+        // Get ALL executions for these conversations to check timing and build history
+        const { data: allExecutions } = await supabase
           .from('ai_automation_executions')
-          .select('conversation_id, generated_message, previous_messages_shown, created_at, follow_up_number')
+          .select('conversation_id, generated_message, previous_messages_shown, created_at, follow_up_number, status')
           .eq('rule_id', rule.id)
-          .gte('created_at', timeThreshold.toISOString());
+          .in('conversation_id', filteredConversations.map(c => c.id))
+          .order('created_at', { ascending: false });
 
         // Check for stopped automations
         const { data: stoppedAutomations } = await supabase
@@ -206,13 +206,14 @@ export async function POST(request: NextRequest) {
         filteredConversations = filteredConversations.filter(c => !stoppedIds.has(c.id));
         console.log(`[AI Automation Trigger] After stopped filter: ${filteredConversations.length}`);
         
-        // Store previous messages and follow-up counts
+        // Store previous messages, follow-up counts, and last execution times
         const previousMessagesMap = new Map<string, string[]>();
         const followUpCountMap = new Map<string, number>();
+        const lastExecutionTimeMap = new Map<string, Date>();
         
-        // Group executions by conversation to count follow-ups
-        const executionsByConv = new Map<string, typeof recentExecutions>();
-        recentExecutions?.forEach(exec => {
+        // Group executions by conversation
+        const executionsByConv = new Map<string, typeof allExecutions>();
+        allExecutions?.forEach(exec => {
           if (!executionsByConv.has(exec.conversation_id)) {
             executionsByConv.set(exec.conversation_id, []);
           }
@@ -222,36 +223,54 @@ export async function POST(request: NextRequest) {
         // Process each conversation's history
         executionsByConv.forEach((execs, convId) => {
           if (execs && execs.length > 0) {
+            // Get previous messages
             const prevMessages = execs
               .map(e => e.generated_message)
               .filter(Boolean);
             previousMessagesMap.set(convId, prevMessages);
+            
+            // Count follow-ups
             followUpCountMap.set(convId, execs.length);
+            
+            // Get last execution time
+            const lastExec = execs[0]; // Already sorted by created_at desc
+            if (lastExec) {
+              lastExecutionTimeMap.set(convId, new Date(lastExec.created_at));
+            }
           }
         });
         
-        // Filter out conversations that reached max follow-ups
-        let toProcess = filteredConversations;
-        
-        if (rule.max_follow_ups) {
-          toProcess = filteredConversations.filter(c => {
+        // Filter conversations based on cooldown period and max follow-ups
+        let toProcess = filteredConversations.filter(c => {
+          // Check max follow-ups
+          if (rule.max_follow_ups) {
             const currentCount = followUpCountMap.get(c.id) || 0;
-            return currentCount < rule.max_follow_ups!;
-          });
-          
-          const reachedMax = filteredConversations.length - toProcess.length;
-          if (reachedMax > 0) {
-            console.log(`[AI Automation Trigger] ${reachedMax} conversation(s) reached max follow-ups (${rule.max_follow_ups})`);
+            if (currentCount >= rule.max_follow_ups) {
+              return false;
+            }
           }
-        }
+          
+          // Check if enough time has passed since last execution
+          const lastExecTime = lastExecutionTimeMap.get(c.id);
+          if (lastExecTime) {
+            const timeSinceLastExec = Date.now() - lastExecTime.getTime();
+            const cooldownMs = totalMinutes * 60 * 1000;
+            
+            // Skip if still in cooldown period
+            if (timeSinceLastExec < cooldownMs) {
+              const minutesSince = Math.floor(timeSinceLastExec / 60000);
+              console.log(`[AI Automation Trigger] Skipping ${c.sender_name} - last processed ${minutesSince} minutes ago (needs ${totalMinutes - minutesSince} more)`);
+              return false;
+            }
+          }
+          
+          return true;
+        });
         
-        // Check which ones need processing based on time threshold
-        const processedRecentlyIds = new Set(
-          recentExecutions
-            ?.filter(e => new Date(e.created_at) > timeThreshold)
-            .map(e => e.conversation_id) || []
-        );
-        toProcess = toProcess.filter(c => !processedRecentlyIds.has(c.id));
+        const filteredOutCount = filteredConversations.length - toProcess.length;
+        if (filteredOutCount > 0) {
+          console.log(`[AI Automation Trigger] Filtered out ${filteredOutCount} conversation(s) (cooldown period or max follow-ups reached)`);
+        }
 
         if (toProcess.length === 0) {
           console.log(`[AI Automation Trigger] All matching conversations already processed`);
