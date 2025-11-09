@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp, LogOut, CheckCircle2, AlertTriangle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -27,6 +27,12 @@ interface TokenVerification {
   lastVerified: number;
 }
 
+interface TokenRefreshStatus {
+  wasRefreshed: boolean;
+  refreshedAt: number;
+  newExpirationDays: number;
+}
+
 export function TokenExpirationWidget() {
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining | null>(null);
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
@@ -36,7 +42,13 @@ export function TokenExpirationWidget() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [verification, setVerification] = useState<TokenVerification | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<TokenRefreshStatus | null>(null);
   const router = useRouter();
+  
+  // Refs to track auto-refresh state
+  const hasTriggeredAutoRefresh = useRef(false);
+  const hasShownWarning = useRef(false);
+  const lastKnownExpiresAt = useRef<number | null>(null);
 
   // Load auto-refresh preference from localStorage
   useEffect(() => {
@@ -47,9 +59,27 @@ export function TokenExpirationWidget() {
   }, []);
 
   // Save auto-refresh preference to localStorage
-  const toggleAutoRefresh = (enabled: boolean) => {
+  const toggleAutoRefresh = async (enabled: boolean) => {
     setAutoRefresh(enabled);
     localStorage.setItem('token-auto-refresh', enabled.toString());
+    
+    // Request notification permission when enabling auto-refresh
+    if (enabled && 'Notification' in window && Notification.permission === 'default') {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          console.log('[TokenWidget] ✅ Notification permission granted');
+          new Notification('Auto-Refresh Enabled', {
+            body: 'You will be notified when your token is about to expire.',
+            icon: '/favicon.ico',
+          });
+        } else {
+          console.log('[TokenWidget] ⚠️ Notification permission denied');
+        }
+      } catch (error) {
+        console.error('[TokenWidget] Error requesting notification permission:', error);
+      }
+    }
   };
 
   useEffect(() => {
@@ -71,6 +101,37 @@ export function TokenExpirationWidget() {
           if (tokenCookie) {
             // If we have an explicit expiration cookie, use it
             cachedExpiresAt = parseInt(tokenCookie.split('=')[1]);
+            
+            // Check if token was recently refreshed
+            if (lastKnownExpiresAt.current && cachedExpiresAt > lastKnownExpiresAt.current) {
+              const expiresInDays = Math.floor((cachedExpiresAt - Date.now()) / (1000 * 60 * 60 * 24));
+              
+              // Token was refreshed! Show confirmation
+              setRefreshStatus({
+                wasRefreshed: true,
+                refreshedAt: Date.now(),
+                newExpirationDays: expiresInDays
+              });
+              
+              console.log('[TokenWidget] ✅ Token was refreshed! New expiration:', new Date(cachedExpiresAt).toLocaleString());
+              console.log('[TokenWidget] 🎉 Token valid for', expiresInDays, 'more days');
+              
+              // Show browser notification
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('✅ Token Refreshed Successfully!', {
+                  body: `Your Facebook token is now valid for ${expiresInDays} more days.`,
+                  icon: '/favicon.ico',
+                });
+              }
+              
+              // Auto-hide refresh status after 30 seconds
+              setTimeout(() => {
+                setRefreshStatus(null);
+              }, 30000);
+            }
+            
+            // Update last known expiration
+            lastKnownExpiresAt.current = cachedExpiresAt;
           } else {
             // Fallback: Set to 60 days from now, but only once
             cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
@@ -137,22 +198,56 @@ export function TokenExpirationWidget() {
     };
   }, []);
 
-  // Auto-refresh when token is about to expire (5 minutes)
+  // Auto-refresh when token is about to expire
   useEffect(() => {
     if (!autoRefresh || !timeRemaining) return;
 
-    const totalMinutes = timeRemaining.total / 60;
+    const totalSeconds = timeRemaining.total;
     
-    // Trigger auto-refresh when 5 minutes or less remaining
-    if (totalMinutes <= 5 && totalMinutes > 0) {
-      console.log('[TokenWidget] Auto-refresh triggered - redirecting to login...');
-      router.push('/login');
+    // Show warning at 10 minutes (once)
+    if (totalSeconds <= 600 && totalSeconds > 300 && !hasShownWarning.current) {
+      hasShownWarning.current = true;
+      console.log('[TokenWidget] ⚠️ Token expires in less than 10 minutes. Auto-refresh enabled.');
+      
+      // Show browser notification if permission granted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Token Expiring Soon', {
+          body: 'Your Facebook token will expire in less than 10 minutes. Auto-refresh is enabled.',
+          icon: '/favicon.ico',
+        });
+      }
+    }
+    
+    // Trigger auto-refresh at 5 minutes (once only)
+    if (totalSeconds <= 300 && totalSeconds > 0 && !hasTriggeredAutoRefresh.current) {
+      hasTriggeredAutoRefresh.current = true;
+      console.log('[TokenWidget] 🔄 Auto-refresh triggered - redirecting to login in 5 seconds...');
+      
+      // Show notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Auto-Refresh Triggered', {
+          body: 'Redirecting to login to refresh your Facebook token...',
+          icon: '/favicon.ico',
+        });
+      }
+      
+      // Give user 5 seconds to see the notification before redirecting
+      setTimeout(() => {
+        console.log('[TokenWidget] ➡️ Redirecting to login now...');
+        router.push('/login');
+      }, 5000);
     }
   }, [autoRefresh, timeRemaining, router]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
+      // Reset auto-refresh flags so they can trigger again after re-login
+      hasTriggeredAutoRefresh.current = false;
+      hasShownWarning.current = false;
+      
+      console.log('[TokenWidget] Manual refresh initiated - redirecting to login...');
+      
       // Redirect to re-authenticate
       router.push('/login');
     } catch (error) {
@@ -196,7 +291,42 @@ export function TokenExpirationWidget() {
           // Update the cookie with the correct expiration
           document.cookie = `fb-token-expires=${data.expiresAt}; path=/; max-age=${data.expiresIn}`;
           
+          // Reset auto-refresh flags since we have new expiration data
+          hasTriggeredAutoRefresh.current = false;
+          hasShownWarning.current = false;
+          
           console.log('[TokenWidget] Updated expiration to match Facebook:', new Date(data.expiresAt).toLocaleString());
+        }
+        
+        // If the token has been refreshed (much longer expiration than expected), reset flags
+        if (data.expiresIn > 86400) { // More than 1 day
+          hasTriggeredAutoRefresh.current = false;
+          hasShownWarning.current = false;
+          
+          const expiresInDays = Math.floor(data.expiresIn / 86400);
+          
+          // Show refresh confirmation
+          setRefreshStatus({
+            wasRefreshed: true,
+            refreshedAt: Date.now(),
+            newExpirationDays: expiresInDays
+          });
+          
+          console.log('[TokenWidget] ✅ Token appears refreshed - reset auto-refresh flags');
+          console.log('[TokenWidget] 🎉 Token valid for', expiresInDays, 'more days');
+          
+          // Show notification
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('✅ Token Verified & Active!', {
+              body: `Your Facebook token is valid for ${expiresInDays} more days.`,
+              icon: '/favicon.ico',
+            });
+          }
+          
+          // Auto-hide after 30 seconds
+          setTimeout(() => {
+            setRefreshStatus(null);
+          }, 30000);
         }
       } else {
         console.error('[TokenWidget] Failed to verify token:', await response.text());
@@ -215,14 +345,19 @@ export function TokenExpirationWidget() {
 
   // Determine color based on time remaining
   const getColorClass = () => {
-    const totalMinutes = timeRemaining.total / 60;
+    const totalSeconds = timeRemaining.total;
     
-    if (totalMinutes < 5) {
-      return 'bg-red-500/95 border-red-600';
-    } else if (totalMinutes < 15) {
+    // Add pulsing animation when auto-refresh is about to trigger
+    const pulseClass = autoRefresh && totalSeconds <= 300 && totalSeconds > 0 ? 'animate-pulse' : '';
+    
+    if (totalSeconds < 300) { // < 5 minutes
+      return `bg-red-500/95 border-red-600 ${pulseClass}`;
+    } else if (totalSeconds < 900) { // < 15 minutes
       return 'bg-orange-500/95 border-orange-600';
-    } else if (totalMinutes < 30) {
+    } else if (totalSeconds < 1800) { // < 30 minutes
       return 'bg-yellow-500/95 border-yellow-600';
+    } else if (totalSeconds < 3600) { // < 60 minutes
+      return 'bg-blue-500/95 border-blue-600';
     } else {
       return 'bg-green-500/95 border-green-600';
     }
@@ -295,7 +430,14 @@ export function TokenExpirationWidget() {
       >
         <Clock className="h-4 w-4 flex-shrink-0" />
         <div className="flex flex-1 flex-col">
-          <span className="text-xs font-medium leading-none">Token Expires</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium leading-none">Token Expires</span>
+            {refreshStatus?.wasRefreshed && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-green-400/20 px-1.5 py-0.5 text-[9px] font-bold text-green-200">
+                ✓ Refreshed
+              </span>
+            )}
+          </div>
           <span className="mt-1 text-sm font-bold leading-none">{formatTime()}</span>
         </div>
         {isExpanded ? (
@@ -362,7 +504,21 @@ export function TokenExpirationWidget() {
                   <div>
                     <span className="text-xs font-medium text-white">Auto-Refresh</span>
                     <p className="text-[10px] text-white/60">
-                      Auto re-login when {'<'} 5 min left
+                      {autoRefresh ? (
+                        timeRemaining.total <= 300 ? (
+                          <span className="text-yellow-300 font-semibold">
+                            🔄 Triggering in {timeRemaining.total} seconds...
+                          </span>
+                        ) : timeRemaining.total <= 600 ? (
+                          <span className="text-orange-300">
+                            ⚠️ Will trigger when {'<'} 5 min left
+                          </span>
+                        ) : (
+                          'Auto re-login when {'<'} 5 min left'
+                        )
+                      ) : (
+                        'Disabled - manually re-login required'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -374,8 +530,34 @@ export function TokenExpirationWidget() {
               </div>
             </div>
 
+            {/* Token Refresh Confirmation */}
+            {refreshStatus?.wasRefreshed && (
+              <div className="rounded-lg border border-green-500/40 bg-gradient-to-r from-green-500/30 to-emerald-500/30 p-3 shadow-lg">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-300 animate-pulse" />
+                  <span className="text-sm font-bold text-white">
+                    🎉 Token Refreshed Successfully!
+                  </span>
+                </div>
+                <p className="ml-6 text-xs text-white/90">
+                  Your Facebook token has been renewed and is now valid for{' '}
+                  <span className="font-bold text-green-300">{refreshStatus.newExpirationDays} days</span>!
+                  <br />
+                  <span className="text-[10px] text-white/60">
+                    Refreshed: {new Date(refreshStatus.refreshedAt).toLocaleTimeString()}
+                  </span>
+                </p>
+                <button
+                  onClick={() => setRefreshStatus(null)}
+                  className="ml-6 mt-2 text-[10px] text-white/70 hover:text-white underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             {/* Verification Status */}
-            {verification && (
+            {verification && !refreshStatus?.wasRefreshed && (
               <div className={`rounded p-2 ${
                 verification.hasMismatch 
                   ? 'bg-yellow-500/20 border border-yellow-500/40' 
