@@ -49,6 +49,7 @@ export interface HourBin {
   raw_probability: number;
   smoothed_probability: number;
   calibrated_probability: number;
+  last_sample?: number;
 }
 
 export interface SegmentPrior {
