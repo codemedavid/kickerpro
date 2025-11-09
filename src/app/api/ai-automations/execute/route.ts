@@ -151,9 +151,9 @@ export async function POST() {
         for (const conv of filteredConversations) {
           // Get the most recent execution for this conversation
           const { data: lastExecution } = await supabase
-            .from('ai_automation_executions')
+          .from('ai_automation_executions')
             .select('id, created_at')
-            .eq('rule_id', rule.id)
+          .eq('rule_id', rule.id)
             .eq('conversation_id', conv.id)
             .order('created_at', { ascending: false })
             .limit(1)

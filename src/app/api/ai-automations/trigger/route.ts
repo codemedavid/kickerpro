@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
         // Filter conversations based on cooldown period and max follow-ups
         let toProcess = uniqueConversations.filter(c => {
           // Check max follow-ups
-          if (rule.max_follow_ups) {
+        if (rule.max_follow_ups) {
             const currentCount = followUpCountMap.get(c.id) || 0;
             if (currentCount >= rule.max_follow_ups) {
               return false;
@@ -283,9 +283,9 @@ export async function POST(request: NextRequest) {
               const minutesSince = Math.floor(timeSinceLastExec / 60000);
               console.log(`[AI Automation Trigger] Skipping ${c.sender_name} - last processed ${minutesSince} minutes ago (needs ${totalMinutes - minutesSince} more)`);
               return false;
-            }
           }
-          
+        }
+        
           return true;
         });
         

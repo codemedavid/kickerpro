@@ -344,7 +344,7 @@ export async function GET(request: NextRequest) {
                 // If last execution was LESS than the interval time, skip (cooldown period)
                 if (timeSinceLastExecution < cooldownMs) {
                   console.log(`      ⏭️  Skipped - last processed ${minutesSinceLastExecution} minutes ago (interval: ${totalMinutes} minutes, needs ${totalMinutes - minutesSinceLastExecution} more minutes)`);
-                  continue;
+                continue;
                 }
                 
                 // If last execution was MORE than the interval time ago, process it!

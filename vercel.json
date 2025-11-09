@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/refresh-facebook-tokens",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-monitoring",
+      "schedule": "0 * * * *"
     }
   ]
 }
