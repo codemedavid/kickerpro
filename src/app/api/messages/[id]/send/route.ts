@@ -253,11 +253,9 @@ async function processBatchesAsync(messageId: string, totalBatches: number, requ
           status: batchResult.batch?.status || 'unknown'
         });
 
-        // If no more batches to process, break
-        if (!batchResult.hasMore) {
-          console.log('[Send API] 🚀 All batches processed in background');
-          break;
-        }
+        // Continue to next batch regardless of hasMore flag
+        // (hasMore indicates pending batches in DB, not whether we should continue our loop)
+        console.log(`[Send API] 🚀 Batch ${batchIndex + 1}/${totalBatches} completed, continuing to next batch...`);
 
         // Add a small delay to allow frontend polling to catch up
         await new Promise(resolve => setTimeout(resolve, 1000));

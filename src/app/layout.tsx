@@ -3,6 +3,7 @@ import "./globals.css";
 import { QueryProvider } from "@/lib/query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { BulkSendIndicator } from "@/components/BulkSendIndicator";
+import { TokenExpirationWidget } from "@/components/TokenExpirationWidget";
 
 export const metadata: Metadata = {
   title: "Facebook Bulk Messenger - Manage Your Facebook Page Messages",
@@ -21,6 +22,7 @@ export default function RootLayout({
           {children}
           <Toaster />
           <BulkSendIndicator />
+          <TokenExpirationWidget />
         </QueryProvider>
       </body>
     </html>

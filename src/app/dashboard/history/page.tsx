@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
 import { format, parseISO } from 'date-fns';
+import { FailedRecipientsDialog } from '@/components/messages/FailedRecipientsDialog';
 
 interface SentMessage {
   id: string;
@@ -50,6 +51,11 @@ export default function HistoryPage() {
 
   const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [failedRecipientsDialogOpen, setFailedRecipientsDialogOpen] = useState(false);
+  const [selectedMessageForRetry, setSelectedMessageForRetry] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   // Fetch pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -360,14 +366,33 @@ export default function HistoryPage() {
                           )}
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => router.push(`/dashboard/messages/${message.id}`)}
-                      >
-                        <Eye className="w-4 h-4 mr-2" />
-                        View Details
-                      </Button>
+                      <div className="flex gap-2">
+                        {(message.status === 'failed' || message.status === 'partially_sent' || 
+                          (message.status === 'sent' && message.delivered_count < message.recipient_count)) && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              setSelectedMessageForRetry({
+                                id: message.id,
+                                title: message.title
+                              });
+                              setFailedRecipientsDialogOpen(true);
+                            }}
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            View Failed & Retry
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => router.push(`/dashboard/messages/${message.id}`)}
+                        >
+                          <Eye className="w-4 h-4 mr-2" />
+                          View Details
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -376,6 +401,16 @@ export default function HistoryPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Failed Recipients Dialog */}
+      {selectedMessageForRetry && (
+        <FailedRecipientsDialog
+          messageId={selectedMessageForRetry.id}
+          messageTitle={selectedMessageForRetry.title}
+          open={failedRecipientsDialogOpen}
+          onOpenChange={setFailedRecipientsDialogOpen}
+        />
+      )}
     </div>
   );
 }

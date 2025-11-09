@@ -256,6 +256,18 @@ export async function POST(
             message_id: result.message_id
           });
 
+          // Log successful delivery
+          await logDeliveryAttempt(
+            supabase,
+            messageId,
+            batch.id,
+            recipientId,
+            'sent',
+            result.message_id || null,
+            null,
+            null
+          );
+
           // 🚀 INSTANT TAGGING: Tag the user immediately after successful send
           await instantTagRecipient(
             supabase,
@@ -283,13 +295,26 @@ export async function POST(
             success: false,
             error: result.error
           });
+
+          // Log failed delivery with error details
+          const errorType = categorizeError(result.error || 'Unknown error');
+          await logDeliveryAttempt(
+            supabase,
+            messageId,
+            batch.id,
+            recipientId,
+            'failed',
+            null,
+            result.error || 'Unknown error',
+            errorType
+          );
         }
       } catch (error) {
         batchFailed++;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error sending message';
         console.error('[Process Batch API] Error sending message to', recipientId, error);
         if (!firstErrorMessage) {
-          firstErrorMessage =
-            error instanceof Error ? error.message : 'Unknown error sending message';
+          firstErrorMessage = errorMessage;
         }
         console.error(
           '[Process Batch API] Send threw error',
@@ -297,14 +322,27 @@ export async function POST(
             message_id: messageId,
             batch_number: batch.batch_number,
             recipient: recipientId.substring(0, 12) + '...',
-            error: error instanceof Error ? error.message : String(error)
+            error: errorMessage
           })
         );
         results.push({
           recipient_id: recipientId,
           success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: errorMessage
         });
+
+        // Log exception as failed delivery
+        const errorType = categorizeError(errorMessage);
+        await logDeliveryAttempt(
+          supabase,
+          messageId,
+          batch.id,
+          recipientId,
+          'failed',
+          null,
+          errorMessage,
+          errorType
+        );
       }
 
       // Update progress more frequently for real-time updates
@@ -607,6 +645,98 @@ async function autoTagSuccessfulRecipients(
     }
   } catch (error) {
     console.error('[Process Batch API] 🏷️ ❌ Fallback auto-tag error:', error);
+  }
+}
+
+// Helper function to categorize errors for better tracking
+function categorizeError(errorMessage: string): string {
+  const lowerError = errorMessage.toLowerCase();
+  
+  if (lowerError.includes('access token') || lowerError.includes('oauth') || lowerError.includes('expired') || lowerError.includes('invalid token')) {
+    return 'access_token';
+  }
+  if (lowerError.includes('rate limit') || lowerError.includes('too many') || lowerError.includes('throttle')) {
+    return 'rate_limit';
+  }
+  if (lowerError.includes('invalid recipient') || lowerError.includes('user not found') || lowerError.includes('psid')) {
+    return 'invalid_recipient';
+  }
+  if (lowerError.includes('network') || lowerError.includes('timeout') || lowerError.includes('connection')) {
+    return 'network';
+  }
+  if (lowerError.includes('permission') || lowerError.includes('not allowed') || lowerError.includes('403')) {
+    return 'permission';
+  }
+  
+  return 'other';
+}
+
+// Helper function to log delivery attempts
+async function logDeliveryAttempt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  messageId: string,
+  batchId: string,
+  recipientId: string,
+  status: 'sent' | 'failed',
+  facebookMessageId: string | null,
+  errorMessage: string | null,
+  errorType: string | null
+) {
+  try {
+    // Get the current attempt number for this recipient
+    const { data: existingAttempts } = await supabase
+      .from('message_deliveries')
+      .select('attempt_number')
+      .eq('message_id', messageId)
+      .eq('recipient_id', recipientId)
+      .order('attempt_number', { ascending: false })
+      .limit(1);
+
+    const attemptNumber = existingAttempts && existingAttempts.length > 0 
+      ? existingAttempts[0].attempt_number + 1 
+      : 1;
+
+    // Get recipient name from conversations if available
+    const { data: conversation } = await supabase
+      .from('messenger_conversations')
+      .select('sender_name')
+      .eq('sender_id', recipientId)
+      .maybeSingle();
+
+    const deliveryRecord = {
+      message_id: messageId,
+      batch_id: batchId,
+      recipient_id: recipientId,
+      recipient_name: conversation?.sender_name || null,
+      status,
+      attempt_number: attemptNumber,
+      facebook_message_id: facebookMessageId,
+      error_message: errorMessage,
+      error_type: errorType,
+      sent_at: status === 'sent' ? new Date().toISOString() : null,
+      failed_at: status === 'failed' ? new Date().toISOString() : null
+    };
+
+    const { error: insertError } = await supabase
+      .from('message_deliveries')
+      .insert(deliveryRecord);
+
+    if (insertError) {
+      console.error('[Process Batch API] Failed to log delivery attempt:', insertError, {
+        messageId,
+        recipientId: recipientId.substring(0, 12) + '...',
+        status
+      });
+    } else {
+      console.log(`[Process Batch API] ✅ Logged delivery attempt #${attemptNumber}:`, {
+        messageId,
+        recipientId: recipientId.substring(0, 12) + '...',
+        status,
+        errorType: errorType || 'none'
+      });
+    }
+  } catch (error) {
+    console.error('[Process Batch API] Exception logging delivery attempt:', error);
   }
 }
 

@@ -85,6 +85,11 @@ export default function ComposePage() {
   const [useAiBulkSend, setUseAiBulkSend] = useState(false);
   // Progress modal and local polling removed; handled globally
 
+  // Retry configuration state
+  const [autoRetryEnabled, setAutoRetryEnabled] = useState(false);
+  const [retryType, setRetryType] = useState<'manual' | 'auto' | 'cron'>('manual');
+  const [maxRetryAttempts, setMaxRetryAttempts] = useState(3);
+
   // Load selected contacts from sessionStorage on mount
   useEffect(() => {
     const stored = sessionStorage.getItem('selectedContacts');
@@ -560,7 +565,11 @@ export default function ComposePage() {
           acc[msg.senderId] = msg.message;
           return acc;
         }, {} as Record<string, string>)
-      })
+      }),
+      // Add retry configuration
+      auto_retry_enabled: autoRetryEnabled,
+      retry_type: retryType,
+      max_retry_attempts: maxRetryAttempts
     };
 
     console.log('[Compose] Sending message data:', messageData);
@@ -1073,6 +1082,115 @@ export default function ComposePage() {
                     <strong>🏷️ Auto-tagging:</strong> All conversations that successfully receive this message will be automatically tagged.
                   </p>
                 </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Retry Configuration Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5" />
+              Automatic Retry (Optional)
+            </CardTitle>
+            <CardDescription>
+              Configure automatic retry for failed message deliveries (e.g., due to access token expiration or network errors)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Enable Auto-Retry */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="auto-retry">Enable Automatic Retry</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Automatically retry failed deliveries
+                  </p>
+                </div>
+                <Switch
+                  id="auto-retry"
+                  checked={autoRetryEnabled}
+                  onCheckedChange={setAutoRetryEnabled}
+                />
+              </div>
+
+              {autoRetryEnabled && (
+                <>
+                  {/* Retry Type */}
+                  <div className="space-y-3">
+                    <Label>Retry Method</Label>
+                    <RadioGroup
+                      value={retryType}
+                      onValueChange={(value) => setRetryType(value as 'manual' | 'auto' | 'cron')}
+                    >
+                      <div className="flex items-start space-x-2 p-3 rounded-lg border hover:bg-accent">
+                        <RadioGroupItem value="manual" id="retry-manual" />
+                        <div className="flex-1">
+                          <Label htmlFor="retry-manual" className="font-medium cursor-pointer">
+                            Manual Retry
+                          </Label>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            You manually click the resend button to retry failed deliveries
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-2 p-3 rounded-lg border hover:bg-accent">
+                        <RadioGroupItem value="auto" id="retry-auto" />
+                        <div className="flex-1">
+                          <Label htmlFor="retry-auto" className="font-medium cursor-pointer">
+                            Auto Retry (Immediate)
+                          </Label>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Automatically retry failed deliveries immediately after the first attempt completes
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-2 p-3 rounded-lg border hover:bg-accent">
+                        <RadioGroupItem value="cron" id="retry-cron" />
+                        <div className="flex-1">
+                          <Label htmlFor="retry-cron" className="font-medium cursor-pointer">
+                            Scheduled Retry (Cron Job)
+                          </Label>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Automatically retry failed deliveries every 15 minutes until successful or max attempts reached
+                          </p>
+                        </div>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  {/* Max Retry Attempts */}
+                  <div className="space-y-3">
+                    <Label htmlFor="max-retries">Maximum Retry Attempts</Label>
+                    <Select
+                      value={maxRetryAttempts.toString()}
+                      onValueChange={(value) => setMaxRetryAttempts(parseInt(value))}
+                    >
+                      <SelectTrigger id="max-retries">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1 retry (2 total attempts)</SelectItem>
+                        <SelectItem value="2">2 retries (3 total attempts)</SelectItem>
+                        <SelectItem value="3">3 retries (4 total attempts)</SelectItem>
+                        <SelectItem value="5">5 retries (6 total attempts)</SelectItem>
+                        <SelectItem value="10">10 retries (11 total attempts)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Info box */}
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>ℹ️ How it works:</strong> Failed deliveries will be automatically retried 
+                      {retryType === 'manual' && ' when you click the resend button'}
+                      {retryType === 'auto' && ' immediately after the initial send completes'}
+                      {retryType === 'cron' && ' every 15 minutes via scheduled job'}
+                      . Recipients who successfully receive the message will not be contacted again.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           </CardContent>

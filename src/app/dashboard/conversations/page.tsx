@@ -16,7 +16,8 @@ import {
   Tag as TagIcon,
   Plus,
   X,
-  Target
+  Target,
+  GitBranch
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,6 +95,7 @@ export default function ConversationsPage() {
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
   const [isScoringLeads, setIsScoringLeads] = useState(false);
   const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
+  const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
 
@@ -702,6 +704,75 @@ export default function ConversationsPage() {
     }
   };
 
+  const handleAddToPipeline = async () => {
+    if (selectedContacts.size === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select at least one contact to add to pipeline.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsAddingToPipeline(true);
+
+    try {
+      // Fetch conversation IDs for selected contacts
+      const params = new URLSearchParams();
+      if (selectedPageId !== 'all') params.append('facebookPageId', selectedPageId);
+      params.append('limit', String(selectedContacts.size));
+      
+      const response = await fetch(`/api/conversations?${params.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch conversations');
+      }
+      
+      const data = await response.json();
+      const allConversations = data.conversations || [];
+      const selected = allConversations.filter((c: Conversation) => 
+        selectedContacts.has(c.sender_id)
+      );
+
+      if (selected.length === 0) {
+        throw new Error('No conversations found for selected contacts');
+      }
+
+      const conversationIds = selected.map((c: Conversation) => c.id);
+
+      // Add to pipeline
+      const pipelineResponse = await fetch('/api/pipeline/opportunities/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_ids: conversationIds })
+      });
+
+      if (!pipelineResponse.ok) {
+        const error = await pipelineResponse.json();
+        throw new Error(error.error || 'Failed to add contacts to pipeline');
+      }
+
+      const result = await pipelineResponse.json();
+
+      toast({
+        title: "Added to Pipeline",
+        description: `${result.added} contact${result.added !== 1 ? 's' : ''} added to pipeline${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}`,
+      });
+
+      // Navigate to pipeline page
+      router.push('/dashboard/pipeline');
+    } catch (error) {
+      console.error('[Conversations] Error adding to pipeline:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add contacts to pipeline",
+        variant: "destructive"
+      });
+    } finally {
+      setIsAddingToPipeline(false);
+    }
+  };
+
   function getPageName(pageId: string) {
     const page = pages.find(p => p.facebook_page_id === pageId);
     return page?.name || 'Unknown Page';
@@ -774,6 +845,23 @@ export default function ConversationsPage() {
               >
                 <TagIcon className="mr-2 w-4 h-4" />
                 Tag {selectedContacts.size} Selected
+              </Button>
+              <Button 
+                onClick={handleAddToPipeline}
+                disabled={isAddingToPipeline}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                {isAddingToPipeline ? (
+                  <>
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  <>
+                    <GitBranch className="mr-2 w-4 h-4" />
+                    Add to Pipeline
+                  </>
+                )}
               </Button>
             </>
           )}
