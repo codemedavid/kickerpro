@@ -3,9 +3,11 @@ import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build'
+  });
+}
 
 interface StageAnalysisResult {
   stage_id: string;
@@ -146,6 +148,7 @@ Respond ONLY with a JSON object in this exact format:
   "confidence": 0.85
 }`;
 
+        const openai = getOpenAIClient();
         const globalResponse = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [

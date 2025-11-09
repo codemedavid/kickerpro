@@ -28,13 +28,15 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // Get or create default "Unmatched" stage
-    let { data: defaultStage, error: stageError } = await supabase
+    const { data: defaultStage, error: stageError } = await supabase
       .from('pipeline_stages')
       .select('id')
       .eq('user_id', userId)
       .eq('is_default', true)
       .eq('is_active', true)
       .single();
+
+    let defaultStageId: string;
 
     // If no default stage exists, create one
     if (stageError || !defaultStage) {
@@ -60,7 +62,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      defaultStage = newStage;
+      defaultStageId = newStage.id;
+    } else {
+      defaultStageId = defaultStage.id;
     }
 
     // Fetch conversation details
@@ -97,7 +101,7 @@ export async function POST(request: NextRequest) {
       .map(conv => ({
         user_id: userId,
         conversation_id: conv.id,
-        stage_id: defaultStage.id,
+        stage_id: defaultStageId,
         sender_id: conv.sender_id,
         sender_name: conv.sender_name,
         manually_assigned: false,
@@ -130,7 +134,7 @@ export async function POST(request: NextRequest) {
       const historyEntries = insertedOpps.map(opp => ({
         opportunity_id: opp.id,
         from_stage_id: null,
-        to_stage_id: defaultStage.id,
+        to_stage_id: defaultStageId,
         moved_by: null,
         moved_by_ai: false,
         reason: 'Added to pipeline for analysis'
