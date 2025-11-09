@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useRouter } from 'next/navigation';
 
 interface TimeRemaining {
@@ -23,7 +24,22 @@ export function TokenExpirationWidget() {
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const router = useRouter();
+
+  // Load auto-refresh preference from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('token-auto-refresh');
+    if (saved !== null) {
+      setAutoRefresh(saved === 'true');
+    }
+  }, []);
+
+  // Save auto-refresh preference to localStorage
+  const toggleAutoRefresh = (enabled: boolean) => {
+    setAutoRefresh(enabled);
+    localStorage.setItem('token-auto-refresh', enabled.toString());
+  };
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
@@ -109,6 +125,19 @@ export function TokenExpirationWidget() {
       }
     };
   }, []);
+
+  // Auto-refresh when token is about to expire (5 minutes)
+  useEffect(() => {
+    if (!autoRefresh || !timeRemaining) return;
+
+    const totalMinutes = timeRemaining.total / 60;
+    
+    // Trigger auto-refresh when 5 minutes or less remaining
+    if (totalMinutes <= 5 && totalMinutes > 0) {
+      console.log('[TokenWidget] Auto-refresh triggered - redirecting to login...');
+      router.push('/login');
+    }
+  }, [autoRefresh, timeRemaining, router]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -276,6 +305,26 @@ export function TokenExpirationWidget() {
                 </p>
               </div>
             )}
+
+            {/* Auto-Refresh Toggle */}
+            <div className="rounded bg-white/10 p-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-3.5 w-3.5 text-white/70" />
+                  <div>
+                    <span className="text-xs font-medium text-white">Auto-Refresh</span>
+                    <p className="text-[10px] text-white/60">
+                      Auto re-login when {'<'} 5 min left
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={autoRefresh}
+                  onCheckedChange={toggleAutoRefresh}
+                  className="data-[state=checked]:bg-green-400"
+                />
+              </div>
+            </div>
 
             {/* Action Buttons */}
             <div className="flex gap-2">
