@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { Session } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 
 interface TimeRemaining {
   hours: number;
@@ -13,24 +12,51 @@ interface TimeRemaining {
   total: number;
 }
 
+interface TokenData {
+  expiresAt: number;
+  userName?: string;
+}
+
 export function TokenExpirationWidget() {
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [tokenData, setTokenData] = useState<TokenData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
-    const supabase = createClient();
     let intervalId: NodeJS.Timeout | null = null;
 
     const updateTimeRemaining = async () => {
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        setSession(currentSession);
+        // Fetch auth status from the API
+        const response = await fetch('/api/auth/check');
+        const data = await response.json();
         
-        if (currentSession?.expires_at) {
-          const expiresAt = currentSession.expires_at * 1000; // Convert to milliseconds
+        if (data.authenticated && data.cookies?.['fb-access-token']) {
+          // Token expires in 60 days from when it was set
+          // Get the cookie to estimate expiration
+          const tokenCookie = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('fb-token-expires='));
+          
+          let expiresAt: number;
+          
+          if (tokenCookie) {
+            // If we have an explicit expiration cookie, use it
+            expiresAt = parseInt(tokenCookie.split('=')[1]);
+          } else {
+            // Estimate: assume token was set recently and expires in 60 days
+            // This is a fallback - we'll add proper tracking
+            expiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+          }
+
+          setTokenData({
+            expiresAt,
+            userName: data.user?.name
+          });
+
           const now = Date.now();
           const diff = expiresAt - now;
 
@@ -56,11 +82,13 @@ export function TokenExpirationWidget() {
           }
         } else {
           setTimeRemaining(null);
+          setTokenData(null);
         }
         setIsLoading(false);
       } catch (error) {
-        console.error('Error fetching session:', error);
+        console.error('Error fetching token status:', error);
         setTimeRemaining(null);
+        setTokenData(null);
         setIsLoading(false);
       }
     };
@@ -81,16 +109,25 @@ export function TokenExpirationWidget() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const supabase = createClient();
-      await supabase.auth.refreshSession();
+      // Redirect to re-authenticate
+      router.push('/login');
     } catch (error) {
-      console.error('Error refreshing session:', error);
+      console.error('Error refreshing token:', error);
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  // Don't show widget if loading or no session
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  // Don't show widget if loading or no token
   if (isLoading || !timeRemaining) {
     return null;
   }
@@ -198,42 +235,53 @@ export function TokenExpirationWidget() {
             </div>
 
             {/* Expiration Date/Time */}
-            {session?.expires_at && (
+            {tokenData?.expiresAt && (
               <div className="rounded bg-white/10 p-2">
                 <div className="mb-1 flex items-center gap-2 text-white/70">
                   <Calendar className="h-3.5 w-3.5" />
                   <span className="font-medium">Expires At</span>
                 </div>
                 <p className="ml-5 font-mono text-sm">
-                  {formatDateTime(session.expires_at)}
+                  {formatDateTime(Math.floor(tokenData.expiresAt / 1000))}
                 </p>
               </div>
             )}
 
             {/* User Info */}
-            {session?.user && (
+            {tokenData?.userName && (
               <div className="rounded bg-white/10 p-2">
                 <div className="mb-1 flex items-center gap-2 text-white/70">
                   <User className="h-3.5 w-3.5" />
                   <span className="font-medium">User</span>
                 </div>
                 <p className="ml-5 truncate font-mono text-sm">
-                  {session.user.email || 'N/A'}
+                  {tokenData.userName}
                 </p>
               </div>
             )}
 
-            {/* Refresh Button */}
-            <Button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              size="sm"
-              variant="secondary"
-              className="w-full bg-white/20 text-white hover:bg-white/30"
-            >
-              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing...' : 'Refresh Session'}
-            </Button>
+            {/* Action Buttons */}
+            <div className="flex gap-2">
+              <Button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                size="sm"
+                variant="secondary"
+                className="flex-1 bg-white/20 text-white hover:bg-white/30"
+              >
+                <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Re-login
+              </Button>
+              <Button
+                onClick={handleLogout}
+                size="sm"
+                variant="secondary"
+                className="bg-white/20 text-white hover:bg-white/30"
+                title="Logout"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
       )}

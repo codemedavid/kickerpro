@@ -189,7 +189,17 @@ export async function POST(request: NextRequest) {
       path: '/'
     });
 
-    console.log('[Facebook Auth] ✅ All session cookies set (user ID + access token)');
+    // Set token expiration tracking cookie (60 days from now)
+    const tokenExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+    response.cookies.set('fb-token-expires', tokenExpiresAt.toString(), {
+      httpOnly: false, // Needs to be readable by client-side widget
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 60, // 60 days
+      path: '/'
+    });
+
+    console.log('[Facebook Auth] ✅ All session cookies set (user ID + access token + expiration)');
 
     return response;
   } catch (error) {
