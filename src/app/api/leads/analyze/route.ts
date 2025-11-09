@@ -13,12 +13,15 @@ export async function POST(request: NextRequest) {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
-    if (!userId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
     const body = await request.json();
-    const { conversationIds, pageId, autoTag = true, autoCreateOpportunities = false, scoringConfig } = body;
+    const { conversationIds, pageId, autoTag = true, autoCreateOpportunities = false, scoringConfig, userId: bodyUserId } = body;
+
+    // Use userId from body if not in cookies
+    const effectiveUserId = userId || bodyUserId;
+
+    if (!effectiveUserId) {
+      return NextResponse.json({ error: 'User ID required in body or cookies' }, { status: 400 });
+    }
 
     if (!conversationIds || !Array.isArray(conversationIds) || conversationIds.length === 0) {
       return NextResponse.json(
@@ -37,7 +40,7 @@ export async function POST(request: NextRequest) {
       const { data: settings } = await supabase
         .from('lead_scoring_settings')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', effectiveUserId)
         .single();
 
       if (settings) {
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest) {
     const { data: page } = await supabase
       .from('facebook_pages')
       .select('facebook_page_id, access_token')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .or(`id.eq.${pageId},facebook_page_id.eq.${pageId}`)
       .single();
 
@@ -122,7 +125,7 @@ export async function POST(request: NextRequest) {
     // Save to history
     const historyRecords = scores.map(score => ({
       conversation_id: score.conversationId,
-      user_id: userId,
+      user_id: effectiveUserId,
       score: score.score,
       quality: score.quality,
       has_budget: score.qualificationData.hasBudget,
@@ -139,22 +142,23 @@ export async function POST(request: NextRequest) {
 
     // Auto-tag if enabled
     if (autoTag) {
-      await autoTagConversations(supabase, userId, scores, config);
+      await autoTagConversations(supabase, effectiveUserId, scores, config);
     }
 
     // Auto-create opportunities if enabled
     let opportunitiesCreated = 0;
     if (autoCreateOpportunities) {
       try {
-        const autoCreateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/opportunities/auto-create`, {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const autoCreateResponse = await fetch(baseUrl + '/api/opportunities/auto-create', {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/json',
-            'Cookie': `fb-auth-user=${userId}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             conversationIds: scores.map(s => s.conversationId),
-            pageId
+            pageId,
+            userId: effectiveUserId
           })
         });
 

@@ -11,12 +11,15 @@ export async function POST(request: NextRequest) {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
-    if (!userId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
     const body = await request.json();
-    const { conversationIds, pageId } = body;
+    const { conversationIds, pageId, userId: bodyUserId } = body;
+
+    // Use userId from body if not in cookies
+    const effectiveUserId = userId || bodyUserId;
+
+    if (!effectiveUserId) {
+      return NextResponse.json({ error: 'User ID required in body or cookies' }, { status: 400 });
+    }
 
     if (!conversationIds || !Array.isArray(conversationIds) || conversationIds.length === 0) {
       return NextResponse.json(
@@ -31,7 +34,7 @@ export async function POST(request: NextRequest) {
     const { data: stages } = await supabase
       .from('pipeline_stages')
       .select('id, name, stage_order')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .eq('is_active', true)
       .order('stage_order', { ascending: true });
 
@@ -73,7 +76,7 @@ export async function POST(request: NextRequest) {
     const { data: existingOpportunities } = await supabase
       .from('opportunities')
       .select('contact_id')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .eq('status', 'open')
       .in('contact_id', conversations.map(c => c.sender_id));
 
@@ -98,15 +101,16 @@ export async function POST(request: NextRequest) {
     // Classify stages for conversations using AI
     let stageClassifications = new Map();
     try {
-      const classifyResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/leads/classify-pipeline-stage`, {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const classifyResponse = await fetch(baseUrl + '/api/leads/classify-pipeline-stage', {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/json',
-          'Cookie': `fb-auth-user=${userId}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           conversationIds: conversationsNeedingOpps.map(c => c.id),
-          pageId
+          pageId,
+          userId: effectiveUserId
         })
       });
 
@@ -143,13 +147,13 @@ export async function POST(request: NextRequest) {
       const finalProbability = classification?.probability || probability;
 
       return {
-        user_id: userId,
+        user_id: effectiveUserId,
         conversation_id: conv.id,
         page_id: conv.page_id,
         contact_name: conv.sender_name || 'Unknown Contact',
         contact_id: conv.sender_id,
         stage_id: stageId,
-        title: `${conv.sender_name || 'Unknown'} - ${score?.quality || 'New'} Lead`,
+        title: (conv.sender_name || 'Unknown') + ' - ' + (score?.quality || 'New') + ' Lead',
         description: classification?.reasoning || score?.reasoning || 'Automatically created opportunity',
         value: 0,
         currency: 'USD',
@@ -178,8 +182,8 @@ export async function POST(request: NextRequest) {
       const activities = createdOpportunities.map(opp => ({
         opportunity_id: opp.id,
         activity_type: 'created',
-        description: `Opportunity automatically created from scored lead`,
-        created_by: userId
+        description: 'Opportunity automatically created from scored lead',
+        created_by: effectiveUserId
       }));
 
       await supabase.from('opportunity_activities').insert(activities);

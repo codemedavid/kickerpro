@@ -20,12 +20,15 @@ export async function POST(request: NextRequest) {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
 
-    if (!userId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
     const body = await request.json();
-    const { conversationIds, pageId } = body;
+    const { conversationIds, pageId, userId: bodyUserId } = body;
+
+    // Use userId from body if not in cookies
+    const effectiveUserId = userId || bodyUserId;
+
+    if (!effectiveUserId) {
+      return NextResponse.json({ error: 'User ID required in body or cookies' }, { status: 400 });
+    }
 
     if (!conversationIds || !Array.isArray(conversationIds) || conversationIds.length === 0) {
       return NextResponse.json(
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
     const { data: stages, error: stagesError } = await supabase
       .from('pipeline_stages')
       .select('id, name, stage_order, description')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .eq('is_active', true)
       .order('stage_order', { ascending: true });
 
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest) {
     const { data: page } = await supabase
       .from('facebook_pages')
       .select('facebook_page_id, access_token')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .or(`id.eq.${pageId},facebook_page_id.eq.${pageId}`)
       .single();
 
