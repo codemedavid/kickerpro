@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { conversationId, stageId } = body;
 
-    if (!conversationId || !stageId) {
+    if (!conversationId) {
       return NextResponse.json(
-        { error: 'conversationId and stageId are required' },
+        { error: 'conversationId is required' },
         { status: 400 }
       );
     }
@@ -109,19 +109,62 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if stage exists and belongs to user
-    const { data: stage, error: stageError } = await supabase
-      .from('pipeline_stages')
-      .select('id')
-      .eq('id', stageId)
-      .eq('user_id', userId)
-      .single();
+    // Get or create default stage if stageId not provided
+    let finalStageId = stageId;
 
-    if (stageError || !stage) {
-      return NextResponse.json(
-        { error: 'Stage not found' },
-        { status: 404 }
-      );
+    if (!finalStageId) {
+      // Get default stage or create one
+      const { data: defaultStage, error: stageError } = await supabase
+        .from('pipeline_stages')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .single();
+
+      if (stageError || !defaultStage) {
+        // Create default stage
+        const { data: newStage, error: createError } = await supabase
+          .from('pipeline_stages')
+          .insert({
+            user_id: userId,
+            name: 'Unmatched',
+            description: 'Contacts that need manual review or AI analysis',
+            color: '#94a3b8',
+            analysis_prompt: 'Review this contact manually to determine the appropriate stage. Consider their engagement level, conversation history, and intent.',
+            is_default: true,
+            position: 999
+          })
+          .select()
+          .single();
+
+        if (createError || !newStage) {
+          console.error('[Pipeline Opportunities API] Error creating default stage:', createError);
+          return NextResponse.json(
+            { error: 'Failed to create default stage' },
+            { status: 500 }
+          );
+        }
+
+        finalStageId = newStage.id;
+      } else {
+        finalStageId = defaultStage.id;
+      }
+    } else {
+      // Verify provided stage exists and belongs to user
+      const { data: stage, error: stageError } = await supabase
+        .from('pipeline_stages')
+        .select('id')
+        .eq('id', stageId)
+        .eq('user_id', userId)
+        .single();
+
+      if (stageError || !stage) {
+        return NextResponse.json(
+          { error: 'Stage not found' },
+          { status: 404 }
+        );
+      }
     }
 
     // Create opportunity
@@ -130,12 +173,12 @@ export async function POST(request: NextRequest) {
       .insert({
         user_id: userId,
         conversation_id: conversationId,
-        stage_id: stageId,
+        stage_id: finalStageId,
         sender_id: conversation.sender_id,
         sender_name: conversation.sender_name,
-        manually_assigned: true,
-        manually_assigned_at: new Date().toISOString(),
-        manually_assigned_by: userId,
+        manually_assigned: stageId ? true : false,
+        manually_assigned_at: stageId ? new Date().toISOString() : null,
+        manually_assigned_by: stageId ? userId : null,
         moved_to_stage_at: new Date().toISOString()
       })
       .select()

@@ -1,6 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+// Helper function to get actual token expiration from Facebook's debug API
+async function getTokenExpirationFromFacebook(token: string): Promise<number | null> {
+  try {
+    console.log('[Facebook Auth] Verifying token expiration with Facebook debug API...');
+    
+    const debugResponse = await fetch(
+      `https://graph.facebook.com/debug_token?` +
+      `input_token=${token}&` +
+      `access_token=${process.env.FACEBOOK_APP_ID}|${process.env.FACEBOOK_APP_SECRET}`
+    );
+
+    if (!debugResponse.ok) {
+      console.error('[Facebook Auth] Debug token API failed');
+      return null;
+    }
+
+    const debugData = await debugResponse.json();
+    
+    if (debugData.data?.data_access_expires_at) {
+      // Facebook returns Unix timestamp in seconds
+      const expiresAt = debugData.data.data_access_expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      const expiresIn = expiresAt - now;
+      
+      console.log('[Facebook Auth] ✅ Token expiration from Facebook:', {
+        expiresAt: new Date(expiresAt * 1000).toLocaleString(),
+        expiresIn: expiresIn,
+        expiresInDays: Math.floor(expiresIn / 86400),
+        isValid: debugData.data.is_valid
+      });
+      
+      return expiresIn;
+    }
+    
+    console.warn('[Facebook Auth] No data_access_expires_at in debug response');
+    return null;
+  } catch (error) {
+    console.error('[Facebook Auth] Error checking token expiration:', error);
+    return null;
+  }
+}
+
 // Helper function to exchange short-lived token for long-lived token (60 days)
 async function exchangeForLongLivedToken(shortLivedToken: string): Promise<{ token: string; expiresIn: number }> {
   try {
@@ -22,16 +64,32 @@ async function exchangeForLongLivedToken(shortLivedToken: string): Promise<{ tok
 
     const data = await response.json();
     const longLivedToken = data.access_token;
-    // Facebook returns expires_in in seconds, default to 60 days if not provided
-    const expiresInSeconds = data.expires_in || (60 * 24 * 60 * 60);
     
-    console.log('[Facebook Auth] ✅ Token exchanged successfully. Expires in:', expiresInSeconds, 'seconds');
+    // IMPORTANT: Get the REAL expiration from Facebook's debug API
+    const realExpiresIn = await getTokenExpirationFromFacebook(longLivedToken);
+    
+    if (realExpiresIn && realExpiresIn > 0) {
+      console.log('[Facebook Auth] ✅ Using REAL expiration from Facebook:', realExpiresIn, 'seconds (', Math.floor(realExpiresIn / 86400), 'days)');
+      return { token: longLivedToken, expiresIn: realExpiresIn };
+    }
+    
+    // Fallback to expires_in from exchange response if debug API fails
+    const expiresInSeconds = data.expires_in || (60 * 24 * 60 * 60);
+    console.log('[Facebook Auth] ⚠️ Using expires_in from exchange response:', expiresInSeconds, 'seconds');
     
     return { token: longLivedToken, expiresIn: expiresInSeconds };
   } catch (error) {
     console.error('[Facebook Auth] Error during token exchange:', error);
-    // If exchange fails, fall back to using the short-lived token (assume 2 hours)
-    console.warn('[Facebook Auth] ⚠️ Falling back to short-lived token');
+    
+    // Even for fallback, try to get real expiration
+    const realExpiresIn = await getTokenExpirationFromFacebook(shortLivedToken);
+    if (realExpiresIn && realExpiresIn > 0) {
+      console.warn('[Facebook Auth] ⚠️ Using short-lived token with REAL expiration:', realExpiresIn, 'seconds');
+      return { token: shortLivedToken, expiresIn: realExpiresIn };
+    }
+    
+    // Last resort fallback
+    console.warn('[Facebook Auth] ⚠️ Falling back to short-lived token with estimated expiration');
     return { token: shortLivedToken, expiresIn: 2 * 60 * 60 }; // 2 hours
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp, LogOut } from 'lucide-react';
+import { Clock, RefreshCw, User, Calendar, X, ChevronDown, ChevronUp, LogOut, CheckCircle2, AlertTriangle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useRouter } from 'next/navigation';
@@ -18,6 +18,15 @@ interface TokenData {
   userName?: string;
 }
 
+interface TokenVerification {
+  isValid: boolean;
+  expiresAt: number | null;
+  expiresIn: number | null;
+  hasMismatch: boolean;
+  mismatchSeconds: number;
+  lastVerified: number;
+}
+
 export function TokenExpirationWidget() {
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining | null>(null);
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
@@ -25,6 +34,8 @@ export function TokenExpirationWidget() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [verification, setVerification] = useState<TokenVerification | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const router = useRouter();
 
   // Load auto-refresh preference from localStorage
@@ -157,6 +168,43 @@ export function TokenExpirationWidget() {
       router.push('/login');
     } catch (error) {
       console.error('Error logging out:', error);
+    }
+  };
+
+  const handleVerify = async () => {
+    setIsVerifying(true);
+    try {
+      const response = await fetch('/api/auth/verify-token');
+      if (response.ok) {
+        const data = await response.json();
+        setVerification({
+          isValid: data.isValid,
+          expiresAt: data.expiresAt,
+          expiresIn: data.expiresIn,
+          hasMismatch: data.hasMismatch,
+          mismatchSeconds: data.mismatchSeconds,
+          lastVerified: Date.now(),
+        });
+        
+        // If there's a mismatch, update the countdown to use the real expiration
+        if (data.hasMismatch && data.expiresAt) {
+          setTokenData({
+            expiresAt: data.expiresAt,
+            userName: data.userName
+          });
+          
+          // Update the cookie with the correct expiration
+          document.cookie = `fb-token-expires=${data.expiresAt}; path=/; max-age=${data.expiresIn}`;
+          
+          console.log('[TokenWidget] Updated expiration to match Facebook:', new Date(data.expiresAt).toLocaleString());
+        }
+      } else {
+        console.error('[TokenWidget] Failed to verify token:', await response.text());
+      }
+    } catch (error) {
+      console.error('[TokenWidget] Error verifying token:', error);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -326,27 +374,75 @@ export function TokenExpirationWidget() {
               </div>
             </div>
 
+            {/* Verification Status */}
+            {verification && (
+              <div className={`rounded p-2 ${
+                verification.hasMismatch 
+                  ? 'bg-yellow-500/20 border border-yellow-500/40' 
+                  : 'bg-green-500/20 border border-green-500/40'
+              }`}>
+                <div className="mb-1 flex items-center gap-2">
+                  {verification.hasMismatch ? (
+                    <AlertTriangle className="h-3.5 w-3.5 text-yellow-300" />
+                  ) : (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-300" />
+                  )}
+                  <span className="text-xs font-medium text-white">
+                    {verification.hasMismatch ? 'Mismatch Detected' : 'Verified with Facebook'}
+                  </span>
+                </div>
+                <p className="ml-5 text-[10px] text-white/80">
+                  {verification.hasMismatch ? (
+                    <>
+                      Countdown was off by {Math.abs(verification.mismatchSeconds)} seconds.
+                      <br />
+                      <span className="text-green-300">✓ Auto-corrected to real expiration</span>
+                    </>
+                  ) : (
+                    <>
+                      Countdown matches Facebook's real expiration
+                      <br />
+                      <span className="text-white/60">Last checked: {new Date(verification.lastVerified).toLocaleTimeString()}</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
             {/* Action Buttons */}
-            <div className="flex gap-2">
+            <div className="space-y-2">
               <Button
-                onClick={handleRefresh}
-                disabled={isRefreshing}
+                onClick={handleVerify}
+                disabled={isVerifying}
                 size="sm"
                 variant="secondary"
-                className="flex-1 bg-white/20 text-white hover:bg-white/30"
+                className="w-full bg-white/20 text-white hover:bg-white/30"
               >
-                <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Re-login
+                <Shield className={`mr-2 h-3.5 w-3.5 ${isVerifying ? 'animate-pulse' : ''}`} />
+                {isVerifying ? 'Verifying...' : 'Verify with Facebook'}
               </Button>
-              <Button
-                onClick={handleLogout}
-                size="sm"
-                variant="secondary"
-                className="bg-white/20 text-white hover:bg-white/30"
-                title="Logout"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </Button>
+              
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  size="sm"
+                  variant="secondary"
+                  className="flex-1 bg-white/20 text-white hover:bg-white/30"
+                >
+                  <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  Re-login
+                </Button>
+                <Button
+                  onClick={handleLogout}
+                  size="sm"
+                  variant="secondary"
+                  className="bg-white/20 text-white hover:bg-white/30"
+                  title="Logout"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
