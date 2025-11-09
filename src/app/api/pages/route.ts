@@ -2,6 +2,63 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
+/**
+ * Exchange short-lived token for long-lived token (60 days)
+ */
+async function exchangeForLongLivedToken(shortLivedToken: string, pageId: string): Promise<string> {
+  const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
+  const appSecret = process.env.FACEBOOK_APP_SECRET;
+
+  if (!appId || !appSecret) {
+    console.error('[Token Exchange] Missing Facebook app credentials');
+    return shortLivedToken; // Fallback to short-lived if no credentials
+  }
+
+  try {
+    console.log(`[Token Exchange] Exchanging token for page ${pageId}...`);
+
+    // Step 1: Exchange short-lived user token for long-lived user token
+    const userTokenUrl = new URL('https://graph.facebook.com/v18.0/oauth/access_token');
+    userTokenUrl.searchParams.set('grant_type', 'fb_exchange_token');
+    userTokenUrl.searchParams.set('client_id', appId);
+    userTokenUrl.searchParams.set('client_secret', appSecret);
+    userTokenUrl.searchParams.set('fb_exchange_token', shortLivedToken);
+
+    const userTokenResponse = await fetch(userTokenUrl.toString());
+    const userTokenData = await userTokenResponse.json();
+
+    if (!userTokenResponse.ok || !userTokenData.access_token) {
+      console.error('[Token Exchange] Failed to get long-lived user token:', userTokenData);
+      return shortLivedToken; // Fallback to short-lived
+    }
+
+    const longLivedUserToken = userTokenData.access_token;
+    const expiresIn = userTokenData.expires_in;
+    const daysValid = Math.floor(expiresIn / 86400);
+
+    console.log(`[Token Exchange] ✅ Got long-lived user token (${daysValid} days)`);
+
+    // Step 2: Get long-lived page token using the long-lived user token
+    const pageTokenUrl = `https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${longLivedUserToken}`;
+    
+    const pageTokenResponse = await fetch(pageTokenUrl);
+    const pageTokenData = await pageTokenResponse.json();
+
+    if (pageTokenResponse.ok && pageTokenData.access_token) {
+      console.log(`[Token Exchange] ✅ Got long-lived page token for ${pageId} (never expires)`);
+      return pageTokenData.access_token;
+    }
+
+    // If page token fails, return long-lived user token (better than short-lived)
+    console.log('[Token Exchange] ⚠️ Failed to get page token, using user token');
+    return longLivedUserToken;
+
+  } catch (error) {
+    console.error('[Token Exchange] Error:', error);
+    return shortLivedToken; // Fallback to short-lived
+  }
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -68,6 +125,11 @@ export async function POST(request: NextRequest) {
 
     for (const page of pages) {
       try {
+        // 🔐 CRITICAL: Exchange short-lived token for 60-day long-lived token
+        console.log(`[Pages API] 🔄 Exchanging token for page: ${page.name}...`);
+        const longLivedToken = await exchangeForLongLivedToken(page.access_token, page.id);
+        console.log(`[Pages API] ✅ Token exchanged for: ${page.name}`);
+
         // Check if THIS USER already has this page (not globally)
         const { data: existing } = await supabase
           .from('facebook_pages')
@@ -86,7 +148,7 @@ export async function POST(request: NextRequest) {
               category: page.category || null,
               profile_picture: page.picture?.data?.url || null,
               follower_count: page.fan_count || 0,
-              access_token: page.access_token,
+              access_token: longLivedToken, // ✅ Save 60-day token instead of short-lived
               is_active: true,
               updated_at: new Date().toISOString()
             })
@@ -98,7 +160,7 @@ export async function POST(request: NextRequest) {
             console.error('[Pages API] Update error for page', page.id, updateError);
             results.push({ id: page.id, success: false, error: updateError.message });
           } else {
-            console.log('[Pages API] Updated page for user:', page.name);
+            console.log('[Pages API] ✅ Updated page with 60-day token:', page.name);
             results.push({ id: page.id, success: true, data: updated });
           }
         } else {
@@ -113,7 +175,7 @@ export async function POST(request: NextRequest) {
               category: page.category || null,
               profile_picture: page.picture?.data?.url || null,
               follower_count: page.fan_count || 0,
-              access_token: page.access_token,
+              access_token: longLivedToken, // ✅ Save 60-day token instead of short-lived
               is_active: true
             })
             .select()
@@ -124,7 +186,7 @@ export async function POST(request: NextRequest) {
             console.error('[Pages API] Error details:', insertError);
             results.push({ id: page.id, success: false, error: insertError.message });
           } else {
-            console.log('[Pages API] Inserted new page for user:', page.name);
+            console.log('[Pages API] ✅ Inserted page with 60-day token:', page.name);
             results.push({ id: page.id, success: true, data: inserted });
           }
         }

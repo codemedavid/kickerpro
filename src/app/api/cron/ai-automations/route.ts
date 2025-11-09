@@ -494,7 +494,7 @@ export async function GET(request: NextRequest) {
                 isFallback: !messages || messages.length === 0
               };
 
-              // Get previous AI messages to ensure uniqueness
+              // Get previous AI messages to ensure uniqueness (limit to 2 to save tokens)
               const { data: previousMessages } = await supabase
                 .from('ai_automation_executions')
                 .select('generated_message')
@@ -503,22 +503,21 @@ export async function GET(request: NextRequest) {
                 .eq('status', 'sent')
                 .not('generated_message', 'is', null)
                 .order('created_at', { ascending: false })
-                .limit(5);
+                .limit(2);
 
               const previousMessageTexts = (previousMessages || [])
                 .map(m => m.generated_message)
                 .filter(Boolean);
 
-              // Build enhanced prompt with uniqueness check
+              // Build enhanced prompt with uniqueness check (concise to save tokens)
               let enhancedPrompt = rule.custom_prompt;
               
               if (previousMessageTexts.length > 0) {
-                enhancedPrompt += `\n\n⚠️ CRITICAL - AVOID REPETITION:\n`;
-                enhancedPrompt += `You previously sent these messages. Create something COMPLETELY DIFFERENT:\n`;
+                enhancedPrompt += `\n\nPrevious messages (be different):\n`;
                 previousMessageTexts.forEach((msg, idx) => {
-                  enhancedPrompt += `${idx + 1}. "${msg}"\n`;
+                  enhancedPrompt += `${idx + 1}. "${msg.substring(0, 100)}${msg.length > 100 ? '...' : ''}"\n`;
                 });
-                enhancedPrompt += `\nDO NOT use similar greetings, structure, or phrases. Be creative and unique!`;
+                enhancedPrompt += `Use different greeting & approach.`;
               }
 
               // Generate AI message

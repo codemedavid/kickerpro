@@ -17,11 +17,7 @@ import {
   Tag as TagIcon,
   Plus,
   X,
-  Target,
-  Flame,
-  Snowflake,
-  AlertCircle,
-  DollarSign
+  Target
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1181,90 +1177,6 @@ export default function ConversationsPage() {
             </div>
           </div>
 
-          {/* Quick Lead Quality Filters */}
-          <div className="mt-4">
-            <Label className="mb-3 block">Quick Lead Quality Filters</Label>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🔥 Hot Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-red-300 hover:bg-red-50"
-              >
-                <Flame className="mr-1 w-3 h-3 text-red-500" />
-                Hot Leads Only
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🟠 Warm Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-orange-300 hover:bg-orange-50"
-              >
-                <TrendingUp className="mr-1 w-3 h-3 text-orange-500" />
-                Warm Leads
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🟡 Cold Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-yellow-300 hover:bg-yellow-50"
-              >
-                <Snowflake className="mr-1 w-3 h-3 text-yellow-500" />
-                Cold Leads
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '💰 Price Shopper');
-                  if (tag) {
-                    setSelectedTagIds([]);
-                    setExceptTagIds([tag.id]);
-                  }
-                }}
-                className="border-purple-300 hover:bg-purple-50"
-              >
-                <DollarSign className="mr-1 w-3 h-3 text-purple-500" />
-                Exclude Price Shoppers
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '⚪ Unqualified');
-                  if (tag) {
-                    setSelectedTagIds([]);
-                    setExceptTagIds([tag.id]);
-                  }
-                }}
-                className="border-gray-300 hover:bg-gray-50"
-              >
-                <AlertCircle className="mr-1 w-3 h-3 text-gray-500" />
-                Exclude Unqualified
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click any button to quickly filter conversations by lead quality
-            </p>
-          </div>
         </CardContent>
       </Card>
 

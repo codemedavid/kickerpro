@@ -343,6 +343,98 @@ export async function POST(request: NextRequest) {
               console.log(`[AI Automation Trigger] ✅ VERIFIED ${conv.sender_name} has required tag(s)`);
             }
 
+            // 🔴 LIVE FACEBOOK CHECK: Fetch fresh conversation data before sending
+            console.log(`[AI Automation Trigger] 🔍 Fetching live conversation data from Facebook...`);
+            let shouldStopDueToReply = false;
+            
+            // Get page access token
+            const { data: checkPage } = await supabase
+              .from('facebook_pages')
+              .select('access_token')
+              .eq('facebook_page_id', conv.page_id)
+              .single();
+            
+            if (checkPage?.access_token) {
+              try {
+                const fbConvoUrl = `https://graph.facebook.com/v18.0/me/conversations?user_id=${conv.sender_id}&fields=messages.limit(5){from,message,created_time}&access_token=${checkPage.access_token}`;
+                const fbResponse = await fetch(fbConvoUrl);
+                const fbData = await fbResponse.json();
+                
+                if (fbResponse.ok && fbData.data && fbData.data[0]?.messages?.data) {
+                  const recentMessages = fbData.data[0].messages.data;
+                  const userMessages = recentMessages.filter((msg: any) => msg.from?.id === conv.sender_id);
+                  
+                  if (userMessages.length > 0) {
+                    const lastUserMessage = userMessages[0];
+                    const lastUserMessageTime = new Date(lastUserMessage.created_time);
+                    const minutesSinceUserMessage = Math.floor((Date.now() - lastUserMessageTime.getTime()) / 60000);
+                    
+                    console.log(`[AI Automation Trigger] 📊 Last user message: ${minutesSinceUserMessage} minutes ago`);
+                    
+                    if (minutesSinceUserMessage < totalMinutes) {
+                      console.log(`[AI Automation Trigger] ⏭️  User replied ${minutesSinceUserMessage} minutes ago (within ${totalMinutes} min interval)`);
+                      console.log(`[AI Automation Trigger] 💬 Their message: "${lastUserMessage.message?.substring(0, 50)}..."`);
+                      
+                      // Update database with fresh timestamp
+                      await supabase
+                        .from('messenger_conversations')
+                        .update({ last_message_time: lastUserMessageTime.toISOString() })
+                        .eq('id', conv.id);
+                      
+                      // Stop automation permanently if stop_on_reply enabled
+                      if (rule.stop_on_reply) {
+                        console.log(`[AI Automation Trigger] 🛑 Stopping automation PERMANENTLY (detected reply)`);
+                        
+                        const { data: existingStop } = await supabase
+                          .from('ai_automation_stops')
+                          .select('id')
+                          .eq('rule_id', rule.id)
+                          .eq('conversation_id', conv.id)
+                          .single();
+                        
+                        if (!existingStop) {
+                          await supabase
+                            .from('ai_automation_stops')
+                            .insert({
+                              rule_id: rule.id,
+                              conversation_id: conv.id,
+                              sender_id: conv.sender_id,
+                              stopped_reason: 'contact_replied_live_check',
+                              follow_ups_sent: 0
+                            });
+                          
+                          console.log(`[AI Automation Trigger] ✅ Stop record created`);
+                          
+                          // Remove all trigger tags
+                          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+                            console.log(`[AI Automation Trigger] 🏷️  Removing ${rule.include_tag_ids.length} trigger tag(s)...`);
+                            for (const tagId of rule.include_tag_ids) {
+                              await supabase
+                                .from('conversation_tags')
+                                .delete()
+                                .eq('conversation_id', conv.id)
+                                .eq('tag_id', tagId);
+                              console.log(`[AI Automation Trigger] 🏷️     ✓ Removed trigger tag: ${tagId}`);
+                            }
+                          }
+                        }
+                      }
+                      
+                      shouldStopDueToReply = true;
+                    } else {
+                      console.log(`[AI Automation Trigger] ✅ Live check OK - User inactive (${minutesSinceUserMessage} min ago)`);
+                    }
+                  }
+                }
+              } catch (fbError) {
+                console.log(`[AI Automation Trigger] ⚠️  Facebook fetch error:`, fbError instanceof Error ? fbError.message : 'Unknown');
+              }
+            }
+            
+            if (shouldStopDueToReply) {
+              continue; // Skip this contact
+            }
+
             // Create monitoring state entry - QUEUED
             // 🔧 FIX: Delete old state records for this contact to prevent duplicates
             try {
@@ -466,44 +558,19 @@ export async function POST(request: NextRequest) {
               continue;
             }
             
-            // Enhance prompt with anti-repetition and follow-up number
+            // Enhance prompt with anti-repetition (concise to save tokens)
             let enhancedPrompt = rule.custom_prompt;
             if (previousMessages.length > 0) {
-              enhancedPrompt = `${rule.custom_prompt}
-
-🚨 CRITICAL UNIQUENESS REQUIREMENT:
-This is FOLLOW-UP #${currentFollowUpNumber} to this person.
-You have sent ${previousMessages.length} previous message(s).
-
-PREVIOUS MESSAGES YOU SENT (DO NOT REPEAT):
-${previousMessages.map((msg, i) => `Message #${i + 1}: "${msg}"`).join('\n\n')}
-
-⚠️ MANDATORY FOR FOLLOW-UP #${currentFollowUpNumber}:
-- Your message MUST be COMPLETELY DIFFERENT from ALL ${previousMessages.length} previous messages
-- Use DIFFERENT greeting (vary: Kumusta/Hey/Hi/Uy/Hello)
-- Use DIFFERENT sentence structure
-- Reference DIFFERENT aspects of their conversation
-- Use DIFFERENT approach (don't repeat same angle)
-- Use DIFFERENT call-to-action
-- This is follow-up #${currentFollowUpNumber}, so adjust tone accordingly
-
-EXAMPLES OF VARIETY:
-Follow-up #1: Direct reference + offer
-Follow-up #2: Checking in + reminder
-Follow-up #3: Different angle + new info
-Follow-up #4: Casual + no pressure
-
-VERIFICATION BEFORE RESPONDING:
-1. Does it use different greeting? YES/NO
-2. Is sentence structure different? YES/NO
-3. Is approach/angle different? YES/NO
-4. Is it substantially different from ALL previous? YES/NO
-
-If ANY NO → REWRITE until ALL YES`;
+              // Only show last 2 messages, truncated to 100 chars each
+              const recentPrevious = previousMessages.slice(0, 2);
+              enhancedPrompt += `\n\nFollow-up #${currentFollowUpNumber}. Previous messages (be different):\n`;
+              recentPrevious.forEach((msg, i) => {
+                const truncated = msg.length > 100 ? msg.substring(0, 100) + '...' : msg;
+                enhancedPrompt += `${i + 1}. "${truncated}"\n`;
+              });
+              enhancedPrompt += `Use different greeting & approach.`;
             } else {
-              enhancedPrompt = `${rule.custom_prompt}
-
-📝 This is FOLLOW-UP #${currentFollowUpNumber} (first automated message to this person)`;
+              enhancedPrompt += `\n\nFollow-up #${currentFollowUpNumber} (first message)`;
             }
 
             // Update monitoring state - GENERATING

@@ -204,6 +204,20 @@ The app requests these Facebook permissions:
 1. Update Facebook App OAuth redirect URIs with your production URL
 2. Update webhook URL in Facebook App settings
 3. Test authentication and webhook functionality
+4. **🔐 Reconnect Facebook Pages** - After deployment, reconnect your pages to activate 60-day token exchange (see below)
+
+### 🔐 Long-Lived Token Setup
+
+**Important:** Facebook tokens expire after 1 hour by default. This app automatically exchanges them for 60-day tokens!
+
+**Quick Setup:**
+1. Ensure `NEXT_PUBLIC_FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are set in Vercel
+2. Disconnect and reconnect your Facebook pages (one time only)
+3. Tokens will now last 60 days and auto-refresh daily via cron job
+
+✅ **Result:** Zero maintenance - tokens never expire!
+
+📚 **Detailed Guide:** See `QUICK_START_60_DAY_TOKENS.md` for complete instructions
 
 ## 📝 Facebook Messaging Policies
 
@@ -218,7 +232,7 @@ This application is designed to comply with Facebook's messaging policies:
 
 - Never commit `.env.local` or expose API keys
 - Use HTTPS in production
-- Regularly rotate access tokens
+- ✅ **Access tokens automatically refresh** - 60-day tokens with daily auto-refresh (no manual rotation needed)
 - Review Facebook's security guidelines
 - Keep dependencies updated
 - Implement proper error handling
@@ -245,6 +259,14 @@ This application is designed to comply with Facebook's messaging policies:
 - Confirm Supabase schema is properly installed
 - Check Row Level Security (RLS) policies
 - Verify user permissions in Supabase
+
+### Token Expiration / OAuth Errors
+
+- **"Invalid OAuth Token"** means your token expired
+- **Solution:** Reconnect your Facebook page in the dashboard
+- **Prevention:** Ensure `NEXT_PUBLIC_FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are set in Vercel
+- After reconnecting, tokens will last 60 days and auto-refresh
+- See `QUICK_START_60_DAY_TOKENS.md` for detailed setup
 
 ## 🤝 Contributing
 
