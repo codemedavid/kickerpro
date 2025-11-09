@@ -179,11 +179,26 @@ export async function POST() {
           continue;
         }
 
-        console.log(`[AI Automation] Processing ${toProcess.length} conversations for rule ${rule.name}`);
+        // 🔧 DEDUPLICATION: Remove duplicate conversations by sender_id
+        const seenSenders = new Set<string>();
+        const uniqueToProcess = toProcess.filter(c => {
+          if (seenSenders.has(c.sender_id)) {
+            console.log(`[AI Automation] 🚫 Removing duplicate conversation for ${c.sender_name} (sender_id: ${c.sender_id})`);
+            return false;
+          }
+          seenSenders.add(c.sender_id);
+          return true;
+        });
+
+        if (toProcess.length > uniqueToProcess.length) {
+          console.log(`[AI Automation] Removed ${toProcess.length - uniqueToProcess.length} duplicate conversation(s)`);
+        }
+
+        console.log(`[AI Automation] Processing ${uniqueToProcess.length} unique conversations for rule ${rule.name}`);
 
         // Limit to remaining daily quota
         const remainingQuota = rule.max_messages_per_day - (todayCount || 0);
-        const conversationsToProcess = toProcess.slice(0, remainingQuota);
+        const conversationsToProcess = uniqueToProcess.slice(0, remainingQuota);
 
         // Generate AI messages for these conversations
         const ruleResult = {

@@ -247,8 +247,23 @@ export async function POST(request: NextRequest) {
           }
         });
         
+        // 🔧 DEDUPLICATION: Remove duplicate conversations by sender_id
+        const seenSenders = new Set<string>();
+        const uniqueConversations = filteredConversations.filter(c => {
+          if (seenSenders.has(c.sender_id)) {
+            console.log(`[AI Automation Trigger] 🚫 Removing duplicate conversation for ${c.sender_name} (sender_id: ${c.sender_id})`);
+            return false;
+          }
+          seenSenders.add(c.sender_id);
+          return true;
+        });
+
+        if (filteredConversations.length > uniqueConversations.length) {
+          console.log(`[AI Automation Trigger] Removed ${filteredConversations.length - uniqueConversations.length} duplicate conversation(s)`);
+        }
+
         // Filter conversations based on cooldown period and max follow-ups
-        let toProcess = filteredConversations.filter(c => {
+        let toProcess = uniqueConversations.filter(c => {
           // Check max follow-ups
           if (rule.max_follow_ups) {
             const currentCount = followUpCountMap.get(c.id) || 0;
@@ -274,7 +289,7 @@ export async function POST(request: NextRequest) {
           return true;
         });
         
-        const filteredOutCount = filteredConversations.length - toProcess.length;
+        const filteredOutCount = uniqueConversations.length - toProcess.length;
         if (filteredOutCount > 0) {
           console.log(`[AI Automation Trigger] Filtered out ${filteredOutCount} conversation(s) (cooldown period or max follow-ups reached)`);
         }
@@ -329,7 +344,16 @@ export async function POST(request: NextRequest) {
             }
 
             // Create monitoring state entry - QUEUED
+            // 🔧 FIX: Delete old state records for this contact to prevent duplicates
             try {
+              // First, delete any existing state records for this conversation + rule
+              await supabase
+                .from('ai_automation_contact_states')
+                .delete()
+                .eq('rule_id', rule.id)
+                .eq('conversation_id', conv.id);
+
+              // Now insert fresh state record
               const { data: stateRecord, error: stateError } = await supabase
                 .from('ai_automation_contact_states')
                 .insert({

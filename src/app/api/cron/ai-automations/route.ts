@@ -266,10 +266,25 @@ export async function GET(request: NextRequest) {
             continue;
           }
 
-          console.log(`    ✅ Final eligible conversations: ${conversations.length}`);
+          // 🔧 DEDUPLICATION: Remove duplicate conversations by sender_id
+          const seenSenders = new Set<string>();
+          const uniqueConversations = conversations.filter(c => {
+            if (seenSenders.has(c.sender_id)) {
+              console.log(`    🚫 Removing duplicate conversation for ${c.sender_name} (sender_id: ${c.sender_id})`);
+              return false;
+            }
+            seenSenders.add(c.sender_id);
+            return true;
+          });
+
+          if (conversations.length > uniqueConversations.length) {
+            console.log(`    Removed ${conversations.length - uniqueConversations.length} duplicate conversation(s)`);
+          }
+
+          console.log(`    ✅ Final eligible unique conversations: ${uniqueConversations.length}`);
 
           // Process each conversation
-          for (const conv of conversations) {
+          for (const conv of uniqueConversations) {
             if (ruleMessagesSent >= remainingQuota) {
               console.log(`    🛑 Stopping - daily quota reached`);
               break;
