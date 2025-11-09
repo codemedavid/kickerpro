@@ -16,7 +16,8 @@ import {
   FileText,
   Tag,
   Bot,
-  GitBranch
+  GitBranch,
+  Clock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ import { useState } from 'react';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Conversations', href: '/dashboard/conversations', icon: Users },
+  { name: 'Best Time to Contact', href: '/dashboard/best-time-to-contact', icon: Clock },
   { name: 'Sales Pipeline', href: '/dashboard/pipeline', icon: GitBranch },
   { name: 'Compose Message', href: '/dashboard/compose', icon: MessageSquare },
   { name: 'AI Automations', href: '/dashboard/ai-automations', icon: Bot },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { triggerComputationIfNeeded } from '@/lib/contact-timing/event-tracker';
 
 export async function POST(request: NextRequest) {
   try {
@@ -141,6 +142,12 @@ export async function POST(request: NextRequest) {
       inserted: insertedCount,
       updated: updatedCount
     });
+
+    // Trigger best-time-to-contact computation for newly synced conversations
+    if (uniqueSynced > 0) {
+      console.log('[Sync Conversations] Triggering best-time-to-contact computation...');
+      await triggerComputationIfNeeded(userId, Array.from(syncedConversationIds));
+    }
 
     return NextResponse.json({
       success: true,
