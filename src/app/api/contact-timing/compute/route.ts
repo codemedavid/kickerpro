@@ -219,7 +219,6 @@ export async function POST(request: NextRequest) {
             raw_probability: bin.raw_probability,
             smoothed_probability: bin.smoothed_probability,
             calibrated_probability: bin.calibrated_probability,
-            last_sample: bin.last_sample,
           }));
 
         if (binInserts.length > 0) {
