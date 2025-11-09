@@ -191,14 +191,16 @@ export async function GET(request: NextRequest) {
         let ruleMessagesFailed = 0;
 
         for (const page of targetPages) {
-          console.log(`    Page: ${page.page_name} (${page.page_id})`);
+          console.log(`    Page: ${page.name || page.page_name || 'Unknown'} (${page.facebook_page_id})`);
 
           // Build conversation query
+          // 🔧 FIX: Use facebook_page_id instead of database id
+          // Conversations store the Facebook page ID, not our database UUID
           let conversationsQuery = supabase
             .from('messenger_conversations')
             .select('*')
             .eq('user_id', rule.user_id)
-            .eq('page_id', page.id)
+            .eq('page_id', page.facebook_page_id)
             .lte('last_message_time', timeThreshold.toISOString())
             .order('last_message_time', { ascending: false })
             .limit(remainingQuota);
