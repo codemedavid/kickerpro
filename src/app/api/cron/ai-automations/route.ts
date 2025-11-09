@@ -217,10 +217,12 @@ export async function GET(request: NextRequest) {
 
           console.log(`    📊 Found ${allConversations.length} conversation(s) past time threshold`);
 
-          // Apply tag filters if specified - ONLY process conversations with specific tags
-          let conversations = allConversations;
+          // 🔒 STRICT TAG FILTERING - ONLY process conversations with matching tags
+          let conversations = [];
 
           if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+            console.log(`    🏷️  REQUIRED TAGS: Filtering for conversations with tag IDs: ${rule.include_tag_ids.join(', ')}`);
+            
             // Query conversation_tags table to get IDs of conversations with required tags
             const { data: taggedConvs } = await supabase
               .from('conversation_tags')
@@ -229,15 +231,20 @@ export async function GET(request: NextRequest) {
 
             if (taggedConvs && taggedConvs.length > 0) {
               const taggedIds = new Set(taggedConvs.map(t => t.conversation_id));
-              const beforeCount = conversations.length;
+              
+              // ONLY include conversations that have the required tags
               conversations = allConversations.filter(c => taggedIds.has(c.id));
-              console.log(`    🏷️  INCLUDE tags filter: ${beforeCount} → ${conversations.length} conversation(s) WITH required tags`);
+              
+              console.log(`    ✅ MATCHED ${conversations.length} out of ${allConversations.length} conversation(s) WITH required tags`);
+              console.log(`    🚫 EXCLUDED ${allConversations.length - conversations.length} conversation(s) WITHOUT required tags`);
             } else {
-              console.log(`    ⚠️  No conversations have the required tags - skipping page`);
+              console.log(`    ⚠️  ZERO conversations have the required tags - skipping this page`);
               conversations = [];
             }
           } else {
-            console.log(`    ℹ️  No include tags specified - processing ALL conversations`);
+            console.log(`    ⚠️  WARNING: No include tags specified - will process ALL conversations`);
+            console.log(`    💡 TIP: Set include_tag_ids to only process specific tagged contacts`);
+            conversations = allConversations;
           }
 
           if (rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0 && conversations.length > 0) {
@@ -271,6 +278,22 @@ export async function GET(request: NextRequest) {
             try {
               ruleMessagesProcessed++;
               console.log(`      Processing: ${conv.sender_name || conv.sender_id}`);
+
+              // 🔒 SAFETY CHECK: Verify contact has required tag before processing
+              if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+                const { data: contactTags } = await supabase
+                  .from('conversation_tags')
+                  .select('tag_id')
+                  .eq('conversation_id', conv.id)
+                  .in('tag_id', rule.include_tag_ids);
+
+                if (!contactTags || contactTags.length === 0) {
+                  console.log(`      🚫 BLOCKED - Contact does NOT have required tag(s), skipping`);
+                  continue;
+                }
+                
+                console.log(`      ✅ VERIFIED - Contact has required tag(s)`);
+              }
 
               // Check if automation has been stopped for this conversation
               const { data: stoppedAutomation } = await supabase

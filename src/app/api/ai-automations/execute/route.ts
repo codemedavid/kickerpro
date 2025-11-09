@@ -113,10 +113,12 @@ export async function POST() {
 
         console.log(`[AI Automation] Found ${conversations.length} conversations for rule ${rule.name}`);
 
-        // Filter by tags if specified
-        let filteredConversations = conversations;
+        // 🔒 STRICT TAG FILTERING - ONLY process conversations with matching tags
+        let filteredConversations = [];
 
         if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+          console.log(`[AI Automation] 🏷️  REQUIRED TAGS: ${rule.include_tag_ids.join(', ')}`);
+          
           const { data: taggedConvs } = await supabase
             .from('conversation_tags')
             .select('conversation_id')
@@ -124,6 +126,12 @@ export async function POST() {
 
           const taggedIds = new Set(taggedConvs?.map(t => t.conversation_id) || []);
           filteredConversations = conversations.filter(c => taggedIds.has(c.id));
+          
+          console.log(`[AI Automation] ✅ MATCHED ${filteredConversations.length} out of ${conversations.length} WITH required tags`);
+          console.log(`[AI Automation] 🚫 EXCLUDED ${conversations.length - filteredConversations.length} WITHOUT required tags`);
+        } else {
+          console.log(`[AI Automation] ⚠️  WARNING: No tags specified - processing ALL conversations`);
+          filteredConversations = conversations;
         }
 
         if (rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0) {
@@ -190,6 +198,22 @@ export async function POST() {
 
         for (const conv of conversationsToProcess) {
           try {
+            // 🔒 SAFETY CHECK: Double-verify contact has required tag before processing
+            if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+              const { data: contactTags } = await supabase
+                .from('conversation_tags')
+                .select('tag_id')
+                .eq('conversation_id', conv.id)
+                .in('tag_id', rule.include_tag_ids);
+
+              if (!contactTags || contactTags.length === 0) {
+                console.log(`[AI Automation] 🚫 BLOCKED ${conv.sender_name} - NO required tag, skipping`);
+                continue;
+              }
+              
+              console.log(`[AI Automation] ✅ VERIFIED ${conv.sender_name} has required tag(s)`);
+            }
+
             // Create execution record
             const { data: execution, error: execError } = await supabase
               .from('ai_automation_executions')
