@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { conversationIds, pageId, autoTag = true, scoringConfig } = body;
+    const { conversationIds, pageId, autoTag = true, autoCreateOpportunities = false, scoringConfig } = body;
 
     if (!conversationIds || !Array.isArray(conversationIds) || conversationIds.length === 0) {
       return NextResponse.json(
@@ -142,9 +142,36 @@ export async function POST(request: NextRequest) {
       await autoTagConversations(supabase, userId, scores, config);
     }
 
+    // Auto-create opportunities if enabled
+    let opportunitiesCreated = 0;
+    if (autoCreateOpportunities) {
+      try {
+        const autoCreateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/ai/auto-create-opportunities`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cookie': `fb-auth-user=${userId}`
+          },
+          body: JSON.stringify({
+            conversationIds: scores.map(s => s.conversationId),
+            pageId
+          })
+        });
+
+        if (autoCreateResponse.ok) {
+          const autoCreateData = await autoCreateResponse.json();
+          opportunitiesCreated = autoCreateData.created || 0;
+          console.log(`[Lead Scoring] Auto-created ${opportunitiesCreated} opportunities`);
+        }
+      } catch (error) {
+        console.warn('[Lead Scoring] Auto-create opportunities failed:', error);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       scored: scores.length,
+      opportunitiesCreated,
       scores: scores.map(s => ({
         conversationId: s.conversationId,
         contactName: s.contactName,

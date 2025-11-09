@@ -99,6 +99,7 @@ export default function ConversationsPage() {
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
   const [isScoringLeads, setIsScoringLeads] = useState(false);
   const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
+  const [isCreatingOpportunities, setIsCreatingOpportunities] = useState(false);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
 
@@ -565,7 +566,7 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
-  const handleScoreLeads = async () => {
+  const handleScoreLeads = async (createOpportunities = false) => {
     if (selectedContacts.size === 0) {
       toast({
         title: "No Contacts Selected",
@@ -586,7 +587,8 @@ export default function ConversationsPage() {
         body: JSON.stringify({
           conversationIds: Array.from(selectedContacts),
           pageId: selectedPage?.id,
-          autoTag: true
+          autoTag: true,
+          autoCreateOpportunities: createOpportunities
         })
       });
 
@@ -600,9 +602,15 @@ export default function ConversationsPage() {
       const warmCount = data.scores.filter((s: any) => s.quality === 'Warm').length;
       const coldCount = data.scores.filter((s: any) => s.quality === 'Cold').length;
       
+      let description = `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`;
+      
+      if (createOpportunities && data.opportunitiesCreated > 0) {
+        description += ` Created ${data.opportunitiesCreated} opportunities.`;
+      }
+      
       toast({
         title: "Lead Scoring Complete!",
-        description: `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`,
+        description,
         duration: 5000
       });
       
@@ -617,6 +625,53 @@ export default function ConversationsPage() {
       });
     } finally {
       setIsScoringLeads(false);
+    }
+  };
+
+  const handleAutoCreateOpportunities = async () => {
+    if (selectedContacts.size === 0) {
+      toast({
+        title: "No Contacts Selected",
+        description: "Please select contacts to create opportunities.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setIsCreatingOpportunities(true);
+    
+    try {
+      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
+      
+      const response = await fetch('/api/ai/auto-create-opportunities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationIds: Array.from(selectedContacts),
+          pageId: selectedPage?.id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create opportunities');
+      }
+
+      const data = await response.json();
+      
+      toast({
+        title: "Opportunities Created!",
+        description: `Created ${data.created} new opportunities. Skipped ${data.skipped} contacts that already have opportunities.`,
+        duration: 5000
+      });
+      
+    } catch (error) {
+      toast({
+        title: "Creation Error",
+        description: error instanceof Error ? error.message : 'Failed to create opportunities',
+        variant: "destructive"
+      });
+    } finally {
+      setIsCreatingOpportunities(false);
     }
   };
 
@@ -799,7 +854,7 @@ export default function ConversationsPage() {
           {selectedContacts.size > 0 && (
             <>
               <Button 
-                onClick={handleScoreLeads}
+                onClick={() => handleScoreLeads(false)}
                 disabled={isScoringLeads}
                 className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg"
               >
@@ -816,6 +871,23 @@ export default function ConversationsPage() {
                 )}
               </Button>
               <Button 
+                onClick={handleAutoCreateOpportunities}
+                disabled={isCreatingOpportunities}
+                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg"
+              >
+                {isCreatingOpportunities ? (
+                  <>
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <TrendingUp className="mr-2 w-4 h-4" />
+                    Auto-Create {selectedContacts.size} Opp{selectedContacts.size === 1 ? '' : 's'}
+                  </>
+                )}
+              </Button>
+              <Button 
                 onClick={handleSendToSelected}
                 className="bg-green-600 hover:bg-green-700"
               >
@@ -827,7 +899,7 @@ export default function ConversationsPage() {
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 <TrendingUp className="mr-2 w-4 h-4" />
-                Create {selectedContacts.size} Opportunit{selectedContacts.size === 1 ? 'y' : 'ies'}
+                Manual Create
               </Button>
               <Button 
                 onClick={() => setIsBulkTagDialogOpen(true)}
