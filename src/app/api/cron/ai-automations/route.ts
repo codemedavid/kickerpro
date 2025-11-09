@@ -353,6 +353,53 @@ export async function GET(request: NextRequest) {
                 console.log(`      ✅ Ready to process - never processed before`);
               }
 
+              // 🔴 LIVE FACEBOOK CHECK: Fetch fresh conversation data before sending
+              // This ensures we don't send if user replied recently
+              console.log(`      🔍 Fetching live conversation data from Facebook...`);
+              try {
+                const fbConvoUrl = `https://graph.facebook.com/v18.0/me/conversations?user_id=${conv.sender_id}&fields=messages.limit(5){from,message,created_time}&access_token=${page.access_token}`;
+                const fbResponse = await fetch(fbConvoUrl);
+                const fbData = await fbResponse.json();
+                
+                if (fbResponse.ok && fbData.data && fbData.data[0]?.messages?.data) {
+                  const recentMessages = fbData.data[0].messages.data;
+                  
+                  // Check if any recent messages are from the user (not from page)
+                  const userMessages = recentMessages.filter((msg: any) => 
+                    msg.from?.id === conv.sender_id
+                  );
+                  
+                  if (userMessages.length > 0) {
+                    const lastUserMessage = userMessages[0];
+                    const lastUserMessageTime = new Date(lastUserMessage.created_time);
+                    const timeSinceUserMessage = Date.now() - lastUserMessageTime.getTime();
+                    const minutesSinceUserMessage = Math.floor(timeSinceUserMessage / 60000);
+                    
+                    // If user messaged within the time interval, they're engaged - don't send!
+                    if (minutesSinceUserMessage < totalMinutes) {
+                      console.log(`      ⏭️  SKIPPED - User replied ${minutesSinceUserMessage} minutes ago (live check)`);
+                      console.log(`      💬 Their message: "${lastUserMessage.message?.substring(0, 50)}..."`);
+                      
+                      // Update conversation in database with fresh timestamp
+                      await supabase
+                        .from('messenger_conversations')
+                        .update({
+                          last_message_time: lastUserMessageTime.toISOString()
+                        })
+                        .eq('id', conv.id);
+                      
+                      continue; // Skip this contact
+                    }
+                    
+                    console.log(`      ✅ Live check OK - Last user message was ${minutesSinceUserMessage} minutes ago`);
+                  }
+                } else {
+                  console.log(`      ⚠️  Could not fetch live data from Facebook (will use database data)`);
+                }
+              } catch (fbError) {
+                console.log(`      ⚠️  Facebook fetch error (will use database data):`, fbError instanceof Error ? fbError.message : 'Unknown');
+              }
+
               // Create execution record
               const { data: execution, error: execError } = await supabase
                 .from('ai_automation_executions')
