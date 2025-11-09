@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 // Helper function to exchange short-lived token for long-lived token (60 days)
-async function exchangeForLongLivedToken(shortLivedToken: string): Promise<string> {
+async function exchangeForLongLivedToken(shortLivedToken: string): Promise<{ token: string; expiresIn: number }> {
   try {
     console.log('[Facebook Auth] Exchanging short-lived token for long-lived token...');
     
@@ -22,17 +22,17 @@ async function exchangeForLongLivedToken(shortLivedToken: string): Promise<strin
 
     const data = await response.json();
     const longLivedToken = data.access_token;
+    // Facebook returns expires_in in seconds, default to 60 days if not provided
+    const expiresInSeconds = data.expires_in || (60 * 24 * 60 * 60);
     
-    // Extract expiry date if provided (Facebook sometimes includes this)
-    const expiresIn = data.expires_in ? `${data.expires_in} seconds` : '60 days (estimated)';
-    console.log('[Facebook Auth] ✅ Token exchanged successfully. Expires in:', expiresIn);
+    console.log('[Facebook Auth] ✅ Token exchanged successfully. Expires in:', expiresInSeconds, 'seconds');
     
-    return longLivedToken;
+    return { token: longLivedToken, expiresIn: expiresInSeconds };
   } catch (error) {
     console.error('[Facebook Auth] Error during token exchange:', error);
-    // If exchange fails, fall back to using the short-lived token
+    // If exchange fails, fall back to using the short-lived token (assume 2 hours)
     console.warn('[Facebook Auth] ⚠️ Falling back to short-lived token');
-    return shortLivedToken;
+    return { token: shortLivedToken, expiresIn: 2 * 60 * 60 }; // 2 hours
   }
 }
 
@@ -45,8 +45,9 @@ export async function POST(request: NextRequest) {
     console.log('[Facebook Auth] User data:', { name, email, hasToken: !!accessToken });
 
     // 🔄 EXCHANGE SHORT-LIVED TOKEN FOR LONG-LIVED TOKEN (60 days)
-    const longLivedToken = await exchangeForLongLivedToken(accessToken);
-    console.log('[Facebook Auth] Using token type:', longLivedToken === accessToken ? 'short-lived (fallback)' : 'long-lived (60 days)');
+    const { token: longLivedToken, expiresIn: tokenExpiresInSeconds } = await exchangeForLongLivedToken(accessToken);
+    console.log('[Facebook Auth] Using token type:', longLivedToken === accessToken ? 'short-lived (fallback)' : 'long-lived');
+    console.log('[Facebook Auth] Token expires in:', tokenExpiresInSeconds, 'seconds (', Math.floor(tokenExpiresInSeconds / 86400), 'days )');
 
     if (!accessToken || !userID) {
       console.error('[Facebook Auth] Missing required data');
@@ -185,21 +186,22 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 60, // 60 days (matches long-lived token)
+      maxAge: tokenExpiresInSeconds, // Use actual token expiration from Facebook
       path: '/'
     });
 
-    // Set token expiration tracking cookie (60 days from now)
-    const tokenExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+    // Set token expiration tracking cookie using Facebook's actual expiration time
+    const tokenExpiresAt = Date.now() + (tokenExpiresInSeconds * 1000); // Convert seconds to milliseconds
     response.cookies.set('fb-token-expires', tokenExpiresAt.toString(), {
       httpOnly: false, // Needs to be readable by client-side widget
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 60, // 60 days
+      maxAge: tokenExpiresInSeconds, // Use actual token expiration from Facebook
       path: '/'
     });
 
     console.log('[Facebook Auth] ✅ All session cookies set (user ID + access token + expiration)');
+    console.log('[Facebook Auth] Token expires at:', new Date(tokenExpiresAt).toLocaleString());
 
     return response;
   } catch (error) {
