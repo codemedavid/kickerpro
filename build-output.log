@@ -1,0 +1,135 @@
+
+> nextjs-app@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.0 (Turbopack)
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 4.5s
+   Running TypeScript ...
+   Collecting page data ...
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+   Generating static pages (0/79) ...
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+   Generating static pages (19/79) 
+[Google AI] 🚀 Loaded 9 API key(s) for rotation
+[Google AI] 📊 Combined rate limit: 135 requests/minute
+   Generating static pages (39/79) 
+   Generating static pages (59/79) 
+[Conversations] User: undefined
+[Conversations] User ID: undefined
+[Conversations] Query enabled: false
+[Conversations] Query loading: false
+[Conversations] Query data: undefined
+[TagFilter] Current state: { isLoading: true, tagsCount: 0, error: undefined, tags: [] }
+ ✓ Generating static pages (79/79) in 988.4ms
+   Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ƒ /api/ai-automations
+├ ƒ /api/ai-automations/[id]
+├ ƒ /api/ai-automations/[id]/monitor
+├ ƒ /api/ai-automations/execute
+├ ƒ /api/ai-automations/trigger
+├ ƒ /api/ai/auto-create-opportunities
+├ ƒ /api/ai/classify-stage
+├ ƒ /api/ai/generate-follow-ups
+├ ƒ /api/ai/score-leads
+├ ƒ /api/ai/test
+├ ƒ /api/auth/check
+├ ƒ /api/auth/facebook
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/me
+├ ƒ /api/check-rls
+├ ƒ /api/conversations
+├ ƒ /api/conversations/[id]/messages
+├ ƒ /api/conversations/[id]/tags
+├ ƒ /api/conversations/auto-tag
+├ ƒ /api/conversations/bulk-tags
+├ ƒ /api/conversations/sync
+├ ƒ /api/conversations/sync-stream
+├ ƒ /api/cron/ai-automations
+├ ƒ /api/cron/cleanup-monitoring
+├ ƒ /api/cron/refresh-facebook-tokens
+├ ƒ /api/cron/refresh-tokens
+├ ƒ /api/cron/send-scheduled
+├ ƒ /api/diagnostics
+├ ƒ /api/diagnostics-facebook
+├ ƒ /api/diagnostics/database
+├ ƒ /api/facebook/exchange-token
+├ ƒ /api/facebook/pages
+├ ƒ /api/facebook/refresh-token
+├ ƒ /api/message-auto-tags
+├ ƒ /api/messages
+├ ƒ /api/messages/[id]
+├ ƒ /api/messages/[id]/batches
+├ ƒ /api/messages/[id]/batches/process
+├ ƒ /api/messages/[id]/cancel
+├ ƒ /api/messages/[id]/retry
+├ ƒ /api/messages/[id]/send
+├ ƒ /api/messages/[id]/send-enhanced
+├ ƒ /api/messages/[id]/send-now
+├ ƒ /api/messages/check-all
+├ ƒ /api/messages/check-batches
+├ ƒ /api/messages/check-latest
+├ ƒ /api/messages/check-scheduled
+├ ƒ /api/messages/create-test-scheduled
+├ ƒ /api/messages/debug-send
+├ ƒ /api/messages/diagnose
+├ ƒ /api/messages/fix-now
+├ ƒ /api/messages/full-test
+├ ƒ /api/messages/rescue-stuck
+├ ƒ /api/messages/send-all-scheduled
+├ ƒ /api/messages/test-facebook
+├ ƒ /api/pages
+├ ƒ /api/pipeline/opportunities
+├ ƒ /api/pipeline/opportunities/[id]
+├ ƒ /api/pipeline/opportunities/bulk
+├ ƒ /api/pipeline/stages
+├ ƒ /api/settings/lead-scoring
+├ ƒ /api/tags
+├ ƒ /api/tags/[id]
+├ ƒ /api/test-auth
+├ ƒ /api/test-conversation-sync
+├ ƒ /api/test-supabase
+├ ƒ /api/upload
+├ ƒ /api/upload-direct
+├ ƒ /api/upload-facebook
+├ ƒ /api/upload-simple
+├ ƒ /api/upload-supabase
+├ ƒ /api/webhook
+├ ƒ /api/webhook/reply-detector
+├ ○ /dashboard
+├ ○ /dashboard/ai-automations
+├ ○ /dashboard/compose
+├ ○ /dashboard/compose-media
+├ ○ /dashboard/conversations
+├ ○ /dashboard/drafts
+├ ○ /dashboard/history
+├ ○ /dashboard/pages
+├ ○ /dashboard/pipeline
+├ ○ /dashboard/pipeline/bulk-create
+├ ○ /dashboard/pipeline/new
+├ ○ /dashboard/scheduled
+├ ○ /dashboard/tags
+├ ○ /login
+├ ○ /privacy
+└ ○ /terms
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

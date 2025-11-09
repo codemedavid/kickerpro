@@ -388,6 +388,49 @@ export async function GET(request: NextRequest) {
                         })
                         .eq('id', conv.id);
                       
+                      // 🛑 STOP the automation permanently if stop_on_reply is enabled
+                      if (rule.stop_on_reply) {
+                        console.log(`      🛑 Stopping automation permanently (user replied)`);
+                        
+                        // Check if already stopped
+                        const { data: existingStop } = await supabase
+                          .from('ai_automation_stops')
+                          .select('id')
+                          .eq('rule_id', rule.id)
+                          .eq('conversation_id', conv.id)
+                          .single();
+                        
+                        if (!existingStop) {
+                          // Create stop record
+                          await supabase
+                            .from('ai_automation_stops')
+                            .insert({
+                              rule_id: rule.id,
+                              conversation_id: conv.id,
+                              sender_id: conv.sender_id,
+                              stopped_reason: 'contact_replied_live_check',
+                              follow_ups_sent: 0 // Detected before sending
+                            });
+                          
+                          console.log(`      ✅ Automation stopped - won't send again unless tags re-added`);
+                          
+                          // Remove all trigger tags
+                          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+                            console.log(`      🏷️  Removing ${rule.include_tag_ids.length} trigger tag(s)...`);
+                            
+                            for (const tagId of rule.include_tag_ids) {
+                              await supabase
+                                .from('conversation_tags')
+                                .delete()
+                                .eq('conversation_id', conv.id)
+                                .eq('tag_id', tagId);
+                              
+                              console.log(`      🏷️     ✓ Removed trigger tag: ${tagId}`);
+                            }
+                          }
+                        }
+                      }
+                      
                       continue; // Skip this contact
                     }
                     
