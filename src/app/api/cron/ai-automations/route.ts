@@ -201,28 +201,60 @@ export async function GET(request: NextRequest) {
             .order('last_message_time', { ascending: false })
             .limit(remainingQuota);
 
-          // Apply tag filters if specified
-          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
-            conversationsQuery = conversationsQuery.contains('tag_ids', rule.include_tag_ids);
-          }
-
-          if (rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0) {
-            conversationsQuery = conversationsQuery.not('tag_ids', 'cs', `{${rule.exclude_tag_ids.join(',')}}`);
-          }
-
-          const { data: conversations, error: convsError } = await conversationsQuery;
+          const { data: allConversations, error: convsError } = await conversationsQuery;
 
           if (convsError) {
             console.error(`    ❌ Error fetching conversations:`, convsError);
             continue;
           }
 
-          if (!conversations || conversations.length === 0) {
-            console.log(`    ℹ️  No eligible conversations found`);
+          if (!allConversations || allConversations.length === 0) {
+            console.log(`    ℹ️  No conversations found for time threshold`);
             continue;
           }
 
-          console.log(`    ✅ Found ${conversations.length} eligible conversation(s)`);
+          console.log(`    📊 Found ${allConversations.length} conversation(s) past time threshold`);
+
+          // Apply tag filters if specified (CRITICAL FIX: Use conversation_tags table)
+          let conversations = allConversations;
+
+          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+            // Query conversation_tags table to get IDs of conversations with required tags
+            const { data: taggedConvs } = await supabase
+              .from('conversation_tags')
+              .select('conversation_id')
+              .in('tag_id', rule.include_tag_ids);
+
+            if (taggedConvs && taggedConvs.length > 0) {
+              const taggedIds = new Set(taggedConvs.map(t => t.conversation_id));
+              conversations = allConversations.filter(c => taggedIds.has(c.id));
+              console.log(`    🏷️  After INCLUDE tags filter: ${conversations.length} conversation(s) WITH required tags`);
+            } else {
+              console.log(`    ⚠️  No conversations have the required tags: ${rule.include_tag_ids}`);
+              conversations = [];
+            }
+          }
+
+          if (rule.exclude_tag_ids && rule.exclude_tag_ids.length > 0 && conversations.length > 0) {
+            // Query conversation_tags table to get IDs of conversations with excluded tags
+            const { data: excludeTaggedConvs } = await supabase
+              .from('conversation_tags')
+              .select('conversation_id')
+              .in('tag_id', rule.exclude_tag_ids);
+
+            if (excludeTaggedConvs && excludeTaggedConvs.length > 0) {
+              const excludeIds = new Set(excludeTaggedConvs.map(t => t.conversation_id));
+              conversations = conversations.filter(c => !excludeIds.has(c.id));
+              console.log(`    🏷️  After EXCLUDE tags filter: ${conversations.length} conversation(s)`);
+            }
+          }
+
+          if (conversations.length === 0) {
+            console.log(`    ℹ️  No eligible conversations after tag filtering`);
+            continue;
+          }
+
+          console.log(`    ✅ Final eligible conversations: ${conversations.length}`);
 
           // Process each conversation
           for (const conv of conversations) {
