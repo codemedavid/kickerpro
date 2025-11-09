@@ -173,11 +173,11 @@ function DraggableContactCard({
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm truncate" title={opportunity.sender_name || 'Unknown'}>
+          <p className="font-medium text-sm break-words line-clamp-1" title={opportunity.sender_name || 'Unknown'}>
             {opportunity.sender_name || 'Unknown'}
           </p>
           {opportunity.conversation.last_message && (
-            <p className="text-xs text-muted-foreground truncate" title={opportunity.conversation.last_message}>
+            <p className="text-xs text-muted-foreground line-clamp-2 break-words" title={opportunity.conversation.last_message}>
               {opportunity.conversation.last_message}
             </p>
           )}
@@ -969,20 +969,22 @@ export default function PipelinePage() {
                         className="flex-1 cursor-pointer hover:opacity-75 transition-opacity"
                         onClick={() => handleExpandStage(stage)}
                       >
-                        <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2 w-full">
+                          <CardTitle className="text-base flex items-center gap-2 flex-1 min-w-0">
                             <div 
                               className="w-3 h-3 rounded-full flex-shrink-0" 
                               style={{ backgroundColor: stage.color }}
                             />
-                            <span className="truncate" title={stage.name}>{stage.name}</span>
-                          </div>
+                            <span className="break-words line-clamp-2" title={stage.name}>
+                              {stage.name}
+                            </span>
+                          </CardTitle>
                           {stage.is_default && (
-                            <Badge variant="outline" className="text-xs bg-slate-100 border-slate-300 flex-shrink-0">
+                            <Badge variant="outline" className="text-xs bg-slate-100 border-slate-300 flex-shrink-0 mt-0.5">
                               Default
                             </Badge>
                           )}
-                        </CardTitle>
+                        </div>
                         {stage.description && (
                           <CardDescription className="mt-1 text-xs truncate" title={stage.description}>
                             {stage.description}
