@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Tag {
   id: string;
@@ -45,6 +46,7 @@ export function TagSelector({ selectedTagIds, onTagChange, maxTags }: TagSelecto
   const [newTagColor, setNewTagColor] = useState('#3B82F6');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // Fetch user's tags
   const { data: tags = [], isLoading } = useQuery<Tag[]>({
@@ -54,7 +56,8 @@ export function TagSelector({ selectedTagIds, onTagChange, maxTags }: TagSelecto
       if (!response.ok) throw new Error('Failed to fetch tags');
       const data = await response.json();
       return data.tags || [];
-    }
+    },
+    enabled: !!user?.id
   });
 
   // Create new tag mutation

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { TagSelector } from './tag-selector';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Tag {
   id: string;
@@ -28,6 +29,7 @@ export function ConversationTags({ conversationId, className }: ConversationTags
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // Fetch conversation tags
   const { data: conversationTags = [], isLoading: tagsLoading } = useQuery<{
@@ -40,7 +42,8 @@ export function ConversationTags({ conversationId, className }: ConversationTags
       if (!response.ok) throw new Error('Failed to fetch conversation tags');
       const data = await response.json();
       return data.tags || [];
-    }
+    },
+    enabled: !!user?.id && !!conversationId
   });
 
   // Update conversation tags mutation

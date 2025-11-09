@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Tag {
   id: string;
@@ -28,6 +29,7 @@ interface TagFilterProps {
 
 export function TagFilter({ selectedTagIds, onTagChange, exceptTagIds = [], onExceptChange, className }: TagFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { user } = useAuth();
 
   // Fetch user's tags
   const { data: tags = [], isLoading, error } = useQuery<Tag[]>({
@@ -47,14 +49,17 @@ export function TagFilter({ selectedTagIds, onTagChange, exceptTagIds = [], onEx
       console.log('[TagFilter] Tags data:', data);
       console.log('[TagFilter] Tags count:', data.tags?.length || 0);
       return data.tags || [];
-    }
+    },
+    enabled: !!user?.id
   });
 
   console.log('[TagFilter] Current state:', { 
+    userId: user?.id,
     isLoading, 
     tagsCount: tags.length, 
     error: error?.message,
-    tags: tags 
+    tags: tags,
+    queryEnabled: !!user?.id
   });
 
   const toggleTag = (tagId: string) => {
