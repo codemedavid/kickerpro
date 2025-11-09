@@ -53,7 +53,8 @@ export async function POST(request: NextRequest) {
     let insertedCount = 0;
     let updatedCount = 0;
     let totalConversations = 0;
-    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time&limit=100&access_token=${page.access_token}`;
+    const apiUrl = 'https://graph.facebook.com/v18.0/' + effectiveFacebookPageId + '/conversations?fields=participants,updated_time&limit=100&access_token=' + page.access_token;
+    let nextUrl = apiUrl;
 
     console.log('[Sync Conversations] Starting to fetch ALL conversations from Facebook...');
 
@@ -151,10 +152,12 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (scoringSettings?.auto_score_on_sync && syncedConversationIds.size > 0) {
-        console.log(`[Sync Conversations] Auto-scoring ${syncedConversationIds.size} conversations...`);
+        console.log('[Sync Conversations] Auto-scoring conversations...');
         
         // Trigger scoring asynchronously (don't wait for completion)
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/leads/analyze', {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const analyzeUrl = baseUrl + '/api/leads/analyze';
+        fetch(analyzeUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -176,7 +179,7 @@ export async function POST(request: NextRequest) {
       inserted: insertedCount,
       updated: updatedCount,
       total: totalConversations,
-      message: `Synced ${uniqueSynced} conversation(s) from Facebook`
+      message: 'Synced ' + uniqueSynced + ' conversation(s) from Facebook'
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);
