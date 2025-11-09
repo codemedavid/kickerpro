@@ -31,6 +31,9 @@ interface ContactRecommendation {
   conversation_id: string;
   sender_id: string;
   sender_name: string;
+  page_name: string;
+  page_id: string | null;
+  page_profile_picture: string | null;
   timezone: string;
   timezone_confidence: 'low' | 'medium' | 'high';
   timezone_source: string | null;
@@ -381,6 +384,7 @@ export default function BestTimeToContactPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Contact</TableHead>
+                      <TableHead>Page</TableHead>
                       <TableHead>Timezone</TableHead>
                       <TableHead>Best Times (Top 3)</TableHead>
                       <TableHead>Confidence</TableHead>
@@ -397,6 +401,20 @@ export default function BestTimeToContactPage() {
                             <div className="font-medium">{rec.sender_name}</div>
                             <div className="text-sm text-muted-foreground">
                               {rec.total_attempts} attempts • {rec.total_successes} successes
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {rec.page_profile_picture && (
+                              <img 
+                                src={rec.page_profile_picture} 
+                                alt={rec.page_name}
+                                className="w-6 h-6 rounded-full"
+                              />
+                            )}
+                            <div>
+                              <div className="text-sm font-medium">{rec.page_name}</div>
                             </div>
                           </div>
                         </TableCell>

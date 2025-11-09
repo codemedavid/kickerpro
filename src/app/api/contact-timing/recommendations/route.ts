@@ -78,30 +78,60 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: queryError.message }, { status: 500 });
     }
 
+    // Fetch page information for each conversation
+    const conversationIds = (recommendations || []).map(r => r.conversation_id);
+    const { data: conversations } = await supabase
+      .from('messenger_conversations')
+      .select('id, page_id')
+      .in('id', conversationIds);
+
+    // Fetch page details
+    const pageIds = [...new Set((conversations || []).map(c => c.page_id))];
+    const { data: pages } = await supabase
+      .from('facebook_pages')
+      .select('facebook_page_id, name, profile_picture')
+      .in('facebook_page_id', pageIds);
+
+    // Create lookup maps
+    const conversationToPage = new Map(
+      (conversations || []).map(c => [c.id, c.page_id])
+    );
+    const pageDetails = new Map(
+      (pages || []).map(p => [p.facebook_page_id, p])
+    );
+
     // Format response
-    const formatted = (recommendations || []).map((rec) => ({
-      id: rec.id,
-      conversation_id: rec.conversation_id,
-      sender_id: rec.sender_id,
-      sender_name: rec.sender_name || 'Unknown',
-      timezone: rec.timezone,
-      timezone_confidence: rec.timezone_confidence,
-      timezone_source: rec.timezone_source,
-      recommended_windows: rec.recommended_windows,
-      max_confidence: Math.round(rec.max_confidence * 100) / 100,
-      recency_score: Math.round(rec.recency_score * 100) / 100,
-      priority_score: Math.round(rec.priority_score * 100) / 100,
-      composite_score: Math.round(rec.composite_score * 100) / 100,
-      last_positive_signal_at: rec.last_positive_signal_at,
-      last_contact_attempt_at: rec.last_contact_attempt_at,
-      total_attempts: rec.total_attempts,
-      total_successes: rec.total_successes,
-      overall_response_rate: Math.round(rec.overall_response_rate * 100),
-      is_active: rec.is_active,
-      cooldown_until: rec.cooldown_until,
-      notes: rec.notes,
-      last_computed_at: rec.last_computed_at,
-    }));
+    const formatted = (recommendations || []).map((rec) => {
+      const pageId = conversationToPage.get(rec.conversation_id);
+      const page = pageId ? pageDetails.get(pageId) : null;
+      
+      return {
+        id: rec.id,
+        conversation_id: rec.conversation_id,
+        sender_id: rec.sender_id,
+        sender_name: rec.sender_name || 'Unknown',
+        page_name: page?.name || 'Unknown Page',
+        page_id: pageId || null,
+        page_profile_picture: page?.profile_picture || null,
+        timezone: rec.timezone,
+        timezone_confidence: rec.timezone_confidence,
+        timezone_source: rec.timezone_source,
+        recommended_windows: rec.recommended_windows,
+        max_confidence: Math.round(rec.max_confidence * 100) / 100,
+        recency_score: Math.round(rec.recency_score * 100) / 100,
+        priority_score: Math.round(rec.priority_score * 100) / 100,
+        composite_score: Math.round(rec.composite_score * 100) / 100,
+        last_positive_signal_at: rec.last_positive_signal_at,
+        last_contact_attempt_at: rec.last_contact_attempt_at,
+        total_attempts: rec.total_attempts,
+        total_successes: rec.total_successes,
+        overall_response_rate: Math.round(rec.overall_response_rate * 100),
+        is_active: rec.is_active,
+        cooldown_until: rec.cooldown_until,
+        notes: rec.notes,
+        last_computed_at: rec.last_computed_at,
+      };
+    });
 
     return NextResponse.json({
       success: true,
