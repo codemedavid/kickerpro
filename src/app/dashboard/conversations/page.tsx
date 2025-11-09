@@ -113,8 +113,24 @@ export default function ConversationsPage() {
     enabled: !!user?.id
   });
 
+  // Fetch user's tags
+  const { data: tags = [] } = useQuery<{
+    id: string;
+    name: string;
+    color: string;
+  }[]>({
+    queryKey: ['tags'],
+    queryFn: async () => {
+      const response = await fetch('/api/tags');
+      if (!response.ok) throw new Error('Failed to fetch tags');
+      const data = await response.json();
+      return data.tags || [];
+    },
+    enabled: !!user?.id
+  });
+
   // Fetch conversations with server-side pagination
-  const { data: conversationsData, isLoading: conversationsLoading } = useQuery<{
+  const { data: conversationsData, isLoading: conversationsLoading, refetch } = useQuery<{
     conversations: Conversation[];
     pagination: {
       page: number;
