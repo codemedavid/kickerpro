@@ -235,6 +235,19 @@ export async function GET(request: NextRequest) {
               ruleMessagesProcessed++;
               console.log(`      Processing: ${conv.sender_name || conv.sender_id}`);
 
+              // Check if automation has been stopped for this conversation
+              const { data: stoppedAutomation } = await supabase
+                .from('ai_automation_stops')
+                .select('id, stopped_reason')
+                .eq('rule_id', rule.id)
+                .eq('conversation_id', conv.id)
+                .single();
+
+              if (stoppedAutomation) {
+                console.log(`      🛑 Skipped - automation stopped (reason: ${stoppedAutomation.stopped_reason})`);
+                continue;
+              }
+
               // Check if already processed within the rule's time interval
               // Use the same time threshold calculation as for finding eligible conversations
               const cooldownMs = totalMinutes * 60 * 1000;
