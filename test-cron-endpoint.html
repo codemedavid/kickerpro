@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test AI Automation Cron</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #fff; }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px; cursor: pointer; }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .info { color: #2196F3; }
+        pre { background: #2d2d2d; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        #logs { max-height: 600px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Test AI Automation Cron</h1>
+    
+    <div>
+        <label for="domain">Your Domain:</label>
+        <input type="text" id="domain" placeholder="your-app.vercel.app" style="width: 300px; padding: 5px;">
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <button onclick="testCron()">🚀 Test Cron Now</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+        <button onclick="checkDatabase()">📊 Check Database</button>
+    </div>
+
+    <h2>Logs:</h2>
+    <div id="logs"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logs.innerHTML += `<div class="${className}">[${time}] ${message}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        async function testCron() {
+            const domain = document.getElementById('domain').value;
+            if (!domain) {
+                alert('Please enter your Vercel domain');
+                return;
+            }
+
+            log('🚀 Testing cron endpoint...', 'info');
+            log(`Domain: ${domain}`, 'info');
+            
+            const url = `https://${domain}/api/cron/ai-automations`;
+            log(`URL: ${url}`, 'info');
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (response.ok) {
+                    log('✅ Cron executed successfully!', 'success');
+                    log('Response:', 'success');
+                    log(JSON.stringify(data, null, 2), 'success');
+
+                    if (data.messages_sent > 0) {
+                        log(`🎉 SUCCESS! ${data.messages_sent} message(s) sent!`, 'success');
+                    } else if (data.rules_processed === 0) {
+                        log('⚠️ No rules processed - check if rules are enabled', 'error');
+                    } else {
+                        log('⚠️ Rules processed but no messages sent', 'error');
+                        log('Check: Active hours, quota, eligible conversations', 'info');
+                    }
+                } else {
+                    log('❌ Cron failed!', 'error');
+                    log(`Status: ${response.status}`, 'error');
+                    log(JSON.stringify(data, null, 2), 'error');
+                }
+            } catch (error) {
+                log('❌ Error calling cron:', 'error');
+                log(error.message, 'error');
+            }
+        }
+
+        function checkDatabase() {
+            log('📊 Run these queries in Supabase SQL Editor:', 'info');
+            log('', 'info');
+            log('-- Check recent executions:', 'info');
+            log(`SELECT ae.created_at, ae.status, mc.sender_name
+FROM ai_automation_executions ae
+JOIN messenger_conversations mc ON ae.conversation_id = mc.id
+ORDER BY ae.created_at DESC LIMIT 10;`, 'info');
+            log('', 'info');
+            log('-- Check rule status:', 'info');
+            log(`SELECT name, enabled, run_24_7, last_executed_at
+FROM ai_automation_rules;`, 'info');
+        }
+
+        // Auto-fill domain from URL if on Vercel
+        window.onload = function() {
+            if (window.location.hostname !== 'localhost') {
+                document.getElementById('domain').value = window.location.hostname;
+            }
+        };
+    </script>
+
+    <hr>
+    <h2>📋 Troubleshooting Checklist:</h2>
+    <pre>
+1. ✅ Run SQL fix: fix-executions-table-add-error-column.sql
+2. ✅ Run SQL fix: CLEAR_STUCK_PROCESSING_FIXED.sql
+3. ✅ Click "Test Cron Now" button above
+4. ✅ Check logs for "messages_sent" > 0
+5. ✅ Verify in Supabase database
+6. ✅ Check Facebook Messenger for sent message
+
+If "messages_sent": 0, check:
+- Are rules enabled? (enabled = true)
+- Is 24/7 mode on? (run_24_7 = true)
+- Are there tagged conversations? (check conversation_tags)
+- Is quota available? (check executions today < max_per_day)
+- Check Vercel logs for error messages
+    </pre>
+</body>
+</html>
+
