@@ -53,8 +53,7 @@ export async function POST(request: NextRequest) {
     let insertedCount = 0;
     let updatedCount = 0;
     let totalConversations = 0;
-    const apiUrl = 'https://graph.facebook.com/v18.0/' + effectiveFacebookPageId + '/conversations?fields=participants,updated_time&limit=100&access_token=' + page.access_token;
-    let nextUrl = apiUrl;
+    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time&limit=100&access_token=${page.access_token}`;
 
     console.log('[Sync Conversations] Starting to fetch ALL conversations from Facebook...');
 
@@ -143,43 +142,13 @@ export async function POST(request: NextRequest) {
       updated: updatedCount
     });
 
-    // Auto-score if enabled in settings (for new/updated conversations only)
-    try {
-      const { data: scoringSettings } = await supabase
-        .from('lead_scoring_settings')
-        .select('auto_score_on_sync')
-        .eq('user_id', userId)
-        .single();
-
-      if (scoringSettings?.auto_score_on_sync && syncedConversationIds.size > 0) {
-        console.log('[Sync Conversations] Auto-scoring conversations...');
-        
-        // Trigger scoring asynchronously (don't wait for completion)
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        const analyzeUrl = baseUrl + '/api/leads/analyze';
-        fetch(analyzeUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversationIds: Array.from(syncedConversationIds),
-            pageId: page.id,
-            autoTag: true
-          })
-        }).catch(err => {
-          console.warn('[Sync Conversations] Auto-scoring failed:', err);
-        });
-      }
-    } catch (settingsError) {
-      console.warn('[Sync Conversations] Could not check scoring settings:', settingsError);
-    }
-
     return NextResponse.json({
       success: true,
       synced: uniqueSynced,
       inserted: insertedCount,
       updated: updatedCount,
       total: totalConversations,
-      message: 'Synced ' + uniqueSynced + ' conversation(s) from Facebook'
+      message: `Synced ${uniqueSynced} conversation(s) from Facebook`
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);

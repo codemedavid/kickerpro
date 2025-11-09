@@ -16,12 +16,7 @@ import {
   TrendingUp,
   Tag as TagIcon,
   Plus,
-  X,
-  Target,
-  Flame,
-  Snowflake,
-  AlertCircle,
-  DollarSign
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -97,9 +92,6 @@ export default function ConversationsPage() {
   const [syncBaselineCount, setSyncBaselineCount] = useState(0);
   const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
-  const [isScoringLeads, setIsScoringLeads] = useState(false);
-  const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
-  const [isCreatingOpportunities, setIsCreatingOpportunities] = useState(false);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
 
@@ -114,24 +106,8 @@ export default function ConversationsPage() {
     enabled: !!user?.id
   });
 
-  // Fetch user's tags
-  const { data: tags = [] } = useQuery<{
-    id: string;
-    name: string;
-    color: string;
-  }[]>({
-    queryKey: ['tags'],
-    queryFn: async () => {
-      const response = await fetch('/api/tags');
-      if (!response.ok) throw new Error('Failed to fetch tags');
-      const data = await response.json();
-      return data.tags || [];
-    },
-    enabled: !!user?.id
-  });
-
   // Fetch conversations with server-side pagination
-  const { data: conversationsData, isLoading: conversationsLoading, refetch } = useQuery<{
+  const { data: conversationsData, isLoading: conversationsLoading } = useQuery<{
     conversations: Conversation[];
     pagination: {
       page: number;
@@ -566,115 +542,6 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
-  const handleScoreLeads = async (createOpportunities = false) => {
-    if (selectedContacts.size === 0) {
-      toast({
-        title: "No Contacts Selected",
-        description: "Please select contacts to score.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsScoringLeads(true);
-    
-    try {
-      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
-      
-      const response = await fetch('/api/leads/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationIds: Array.from(selectedContacts),
-          pageId: selectedPage?.id,
-          autoTag: true,
-          autoCreateOpportunities: createOpportunities
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to score leads');
-      }
-
-      const data = await response.json();
-      
-      const hotCount = data.scores.filter((s: any) => s.quality === 'Hot').length;
-      const warmCount = data.scores.filter((s: any) => s.quality === 'Warm').length;
-      const coldCount = data.scores.filter((s: any) => s.quality === 'Cold').length;
-      
-      let description = `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`;
-      
-      if (createOpportunities && data.opportunitiesCreated > 0) {
-        description += ` Created ${data.opportunitiesCreated} opportunities.`;
-      }
-      
-      toast({
-        title: "Lead Scoring Complete!",
-        description,
-        duration: 5000
-      });
-      
-      // Refresh conversations to show new tags
-      await refetch();
-      
-    } catch (error) {
-      toast({
-        title: "Scoring Error",
-        description: error instanceof Error ? error.message : 'Failed to score leads',
-        variant: "destructive"
-      });
-    } finally {
-      setIsScoringLeads(false);
-    }
-  };
-
-  const handleAutoCreateOpportunities = async () => {
-    if (selectedContacts.size === 0) {
-      toast({
-        title: "No Contacts Selected",
-        description: "Please select contacts to create opportunities.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsCreatingOpportunities(true);
-    
-    try {
-      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
-      
-      const response = await fetch('/api/opportunities/auto-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationIds: Array.from(selectedContacts),
-          pageId: selectedPage?.id
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create opportunities');
-      }
-
-      const data = await response.json();
-      
-      toast({
-        title: "Opportunities Created!",
-        description: `Created ${data.created} new opportunities. Skipped ${data.skipped} contacts that already have opportunities.`,
-        duration: 5000
-      });
-      
-    } catch (error) {
-      toast({
-        title: "Creation Error",
-        description: error instanceof Error ? error.message : 'Failed to create opportunities',
-        variant: "destructive"
-      });
-    } finally {
-      setIsCreatingOpportunities(false);
-    }
-  };
-
   const handleCreateOpportunities = () => {
     if (selectedContacts.size === 0) {
       toast({
@@ -700,23 +567,11 @@ export default function ConversationsPage() {
       ? null
       : pages.find(p => p.facebook_page_id === selectedPageId);
 
-    // Also store full conversation data for AI classification
-    const fullContactsData = selectedArray.map(sender_id => {
-      const conv = conversations.find(c => c.sender_id === sender_id);
-      return {
-        id: conv?.id || '',
-        sender_id,
-        sender_name: conv?.sender_name || `User ${sender_id.substring(0, 8)}`,
-        page_id: conv?.page_id || ''
-      };
-    });
-
     sessionStorage.setItem('opportunityContacts', JSON.stringify({
       contacts: contactsData,
       pageId: selectedPage?.id ?? null,
       facebookPageId: selectedPage?.facebook_page_id ?? null
     }));
-    sessionStorage.setItem('opportunityContactsFull', JSON.stringify(fullContactsData));
 
     toast({
       title: "Contacts Loaded",
@@ -854,40 +709,6 @@ export default function ConversationsPage() {
           {selectedContacts.size > 0 && (
             <>
               <Button 
-                onClick={() => handleScoreLeads(false)}
-                disabled={isScoringLeads}
-                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg"
-              >
-                {isScoringLeads ? (
-                  <>
-                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    Scoring {selectedContacts.size} lead{selectedContacts.size !== 1 ? 's' : ''}...
-                  </>
-                ) : (
-                  <>
-                    <Target className="mr-2 w-4 h-4" />
-                    Score {selectedContacts.size} Lead{selectedContacts.size !== 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
-              <Button 
-                onClick={handleAutoCreateOpportunities}
-                disabled={isCreatingOpportunities}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg"
-              >
-                {isCreatingOpportunities ? (
-                  <>
-                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp className="mr-2 w-4 h-4" />
-                    Auto-Create {selectedContacts.size} Opp{selectedContacts.size === 1 ? '' : 's'}
-                  </>
-                )}
-              </Button>
-              <Button 
                 onClick={handleSendToSelected}
                 className="bg-green-600 hover:bg-green-700"
               >
@@ -899,7 +720,7 @@ export default function ConversationsPage() {
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 <TrendingUp className="mr-2 w-4 h-4" />
-                Manual Create
+                Create {selectedContacts.size} Opportunit{selectedContacts.size === 1 ? 'y' : 'ies'}
               </Button>
               <Button 
                 onClick={() => setIsBulkTagDialogOpen(true)}
@@ -1179,91 +1000,6 @@ export default function ConversationsPage() {
                 onExceptChange={setExceptTagIds}
               />
             </div>
-          </div>
-
-          {/* Quick Lead Quality Filters */}
-          <div className="mt-4">
-            <Label className="mb-3 block">Quick Lead Quality Filters</Label>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🔥 Hot Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-red-300 hover:bg-red-50"
-              >
-                <Flame className="mr-1 w-3 h-3 text-red-500" />
-                Hot Leads Only
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🟠 Warm Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-orange-300 hover:bg-orange-50"
-              >
-                <TrendingUp className="mr-1 w-3 h-3 text-orange-500" />
-                Warm Leads
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '🟡 Cold Lead');
-                  if (tag) {
-                    setSelectedTagIds([tag.id]);
-                    setExceptTagIds([]);
-                  }
-                }}
-                className="border-yellow-300 hover:bg-yellow-50"
-              >
-                <Snowflake className="mr-1 w-3 h-3 text-yellow-500" />
-                Cold Leads
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '💰 Price Shopper');
-                  if (tag) {
-                    setSelectedTagIds([]);
-                    setExceptTagIds([tag.id]);
-                  }
-                }}
-                className="border-purple-300 hover:bg-purple-50"
-              >
-                <DollarSign className="mr-1 w-3 h-3 text-purple-500" />
-                Exclude Price Shoppers
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const tag = tags.find(t => t.name === '⚪ Unqualified');
-                  if (tag) {
-                    setSelectedTagIds([]);
-                    setExceptTagIds([tag.id]);
-                  }
-                }}
-                className="border-gray-300 hover:bg-gray-50"
-              >
-                <AlertCircle className="mr-1 w-3 h-3 text-gray-500" />
-                Exclude Unqualified
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click any button to quickly filter conversations by lead quality
-            </p>
           </div>
         </CardContent>
       </Card>
