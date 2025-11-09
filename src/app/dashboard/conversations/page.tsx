@@ -13,7 +13,6 @@ import {
   Send,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
   Tag as TagIcon,
   Plus,
   X,
@@ -95,7 +94,6 @@ export default function ConversationsPage() {
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
   const [isScoringLeads, setIsScoringLeads] = useState(false);
   const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
-  const [isCreatingOpportunities, setIsCreatingOpportunities] = useState(false);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
 
@@ -562,7 +560,7 @@ export default function ConversationsPage() {
     setSelectedContacts(newSelection);
   };
 
-  const handleScoreLeads = async (createOpportunities = false) => {
+  const handleScoreLeads = async () => {
     if (selectedContacts.size === 0) {
       toast({
         title: "No Contacts Selected",
@@ -583,8 +581,7 @@ export default function ConversationsPage() {
         body: JSON.stringify({
           conversationIds: Array.from(selectedContacts),
           pageId: selectedPage?.id,
-          autoTag: true,
-          autoCreateOpportunities: createOpportunities
+          autoTag: true
         })
       });
 
@@ -598,11 +595,7 @@ export default function ConversationsPage() {
       const warmCount = data.scores.filter((s: any) => s.quality === 'Warm').length;
       const coldCount = data.scores.filter((s: any) => s.quality === 'Cold').length;
       
-      let description = `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`;
-      
-      if (createOpportunities && data.opportunitiesCreated > 0) {
-        description += ` Created ${data.opportunitiesCreated} opportunities.`;
-      }
+      const description = `Analyzed ${data.scored} leads. Hot: ${hotCount}, Warm: ${warmCount}, Cold: ${coldCount}. Tags applied automatically.`;
       
       toast({
         title: "Lead Scoring Complete!",
@@ -624,104 +617,6 @@ export default function ConversationsPage() {
     }
   };
 
-  const handleAutoCreateOpportunities = async () => {
-    if (selectedContacts.size === 0) {
-      toast({
-        title: "No Contacts Selected",
-        description: "Please select contacts to create opportunities.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsCreatingOpportunities(true);
-    
-    try {
-      const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
-      
-      const response = await fetch('/api/ai/auto-create-opportunities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationIds: Array.from(selectedContacts),
-          pageId: selectedPage?.id
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create opportunities');
-      }
-
-      const data = await response.json();
-      
-      toast({
-        title: "Opportunities Created!",
-        description: `Created ${data.created} new opportunities. Skipped ${data.skipped} contacts that already have opportunities.`,
-        duration: 5000
-      });
-      
-    } catch (error) {
-      toast({
-        title: "Creation Error",
-        description: error instanceof Error ? error.message : 'Failed to create opportunities',
-        variant: "destructive"
-      });
-    } finally {
-      setIsCreatingOpportunities(false);
-    }
-  };
-
-  const handleCreateOpportunities = () => {
-    if (selectedContacts.size === 0) {
-      toast({
-        title: "No Contacts Selected",
-        description: "Please select at least one contact to create opportunities.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Store selected contacts in sessionStorage
-    const selectedArray = Array.from(selectedContacts);
-    const contactsData = selectedArray.map(sender_id => {
-      const conv = conversations.find(c => c.sender_id === sender_id);
-      return {
-        sender_id,
-        sender_name: conv?.sender_name || `User ${sender_id.substring(0, 8)}`,
-        page_id: conv?.page_id || ''
-      };
-    });
-
-    const selectedPage = selectedPageId === 'all'
-      ? null
-      : pages.find(p => p.facebook_page_id === selectedPageId);
-
-    // Also store full conversation data for AI classification
-    const fullContactsData = selectedArray.map(sender_id => {
-      const conv = conversations.find(c => c.sender_id === sender_id);
-      return {
-        id: conv?.id || '',
-        sender_id,
-        sender_name: conv?.sender_name || `User ${sender_id.substring(0, 8)}`,
-        page_id: conv?.page_id || ''
-      };
-    });
-
-    sessionStorage.setItem('opportunityContacts', JSON.stringify({
-      contacts: contactsData,
-      pageId: selectedPage?.id ?? null,
-      facebookPageId: selectedPage?.facebook_page_id ?? null
-    }));
-    sessionStorage.setItem('opportunityContactsFull', JSON.stringify(fullContactsData));
-
-    toast({
-      title: "Contacts Loaded",
-      description: `Ready to create ${selectedContacts.size} opportunit${selectedContacts.size === 1 ? 'y' : 'ies'}`,
-      duration: 2000
-    });
-
-    router.push('/dashboard/pipeline/bulk-create');
-  };
 
   const handleSendToSelected = async () => {
     if (selectedContacts.size === 0) {
@@ -850,7 +745,7 @@ export default function ConversationsPage() {
           {selectedContacts.size > 0 && (
             <>
               <Button 
-                onClick={() => handleScoreLeads(false)}
+                onClick={handleScoreLeads}
                 disabled={isScoringLeads}
                 className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg"
               >
@@ -867,35 +762,11 @@ export default function ConversationsPage() {
                 )}
               </Button>
               <Button 
-                onClick={handleAutoCreateOpportunities}
-                disabled={isCreatingOpportunities}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg"
-              >
-                {isCreatingOpportunities ? (
-                  <>
-                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp className="mr-2 w-4 h-4" />
-                    Auto-Create {selectedContacts.size} Opp{selectedContacts.size === 1 ? '' : 's'}
-                  </>
-                )}
-              </Button>
-              <Button 
                 onClick={handleSendToSelected}
                 className="bg-green-600 hover:bg-green-700"
               >
                 <Send className="mr-2 w-4 h-4" />
                 Send to {selectedContacts.size} Selected
-              </Button>
-              <Button 
-                onClick={handleCreateOpportunities}
-                className="bg-purple-600 hover:bg-purple-700"
-              >
-                <TrendingUp className="mr-2 w-4 h-4" />
-                Manual Create
               </Button>
               <Button 
                 onClick={() => setIsBulkTagDialogOpen(true)}
@@ -1358,27 +1229,6 @@ export default function ConversationsPage() {
                       </div>
 
                       <div className="flex flex-col gap-2 ml-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Find the internal page UUID from the facebook_page_id
-                            const pageUuid = pages.find(p => p.facebook_page_id === conv.page_id)?.id;
-                            
-                            sessionStorage.setItem('opportunityContact', JSON.stringify({
-                              sender_id: conv.sender_id,
-                              sender_name: conv.sender_name,
-                              page_id: conv.page_id,
-                              pageUuid: pageUuid
-                            }));
-                            router.push('/dashboard/pipeline/new');
-                          }}
-                          className="whitespace-nowrap"
-                        >
-                          <TrendingUp className="w-4 h-4 mr-1" />
-                          Add to Pipeline
-                        </Button>
                         <p className="text-xs text-muted-foreground text-center">
                           ID: {conv.sender_id.substring(0, 12)}...
                         </p>

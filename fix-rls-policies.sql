@@ -8,8 +8,6 @@ DROP POLICY IF EXISTS "Users manage own pages" ON facebook_pages;
 DROP POLICY IF EXISTS "Users manage own messages" ON messages;
 DROP POLICY IF EXISTS "Users manage own conversations" ON messenger_conversations;
 DROP POLICY IF EXISTS "Users manage own tags" ON tags;
-DROP POLICY IF EXISTS "Users manage own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users manage own opportunities" ON pipeline_opportunities;
 
 -- Create permissive policies for users table
 CREATE POLICY "Allow all operations on users"
@@ -55,16 +53,6 @@ CREATE POLICY "Allow all on conversation_tags"
 
 CREATE POLICY "Allow all on message_auto_tags"
   ON message_auto_tags FOR ALL
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Allow all on pipeline_stages"
-  ON pipeline_stages FOR ALL
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Allow all on pipeline_opportunities"
-  ON pipeline_opportunities FOR ALL
   USING (true)
   WITH CHECK (true);
 

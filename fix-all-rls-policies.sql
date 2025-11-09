@@ -18,12 +18,6 @@ DROP POLICY IF EXISTS "Allow all operations on messenger_conversations" ON messe
 DROP POLICY IF EXISTS "Users manage own tags" ON tags;
 DROP POLICY IF EXISTS "Allow all on tags" ON tags;
 DROP POLICY IF EXISTS "Allow all operations on tags" ON tags;
-DROP POLICY IF EXISTS "Users manage own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Allow all on pipeline_stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Allow all operations on pipeline_stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users manage own opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Allow all on pipeline_opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Allow all operations on pipeline_opportunities" ON pipeline_opportunities;
 DROP POLICY IF EXISTS "Users manage own automations" ON ai_automation_rules;
 DROP POLICY IF EXISTS "Allow all on ai_automation_rules" ON ai_automation_rules;
 DROP POLICY IF EXISTS "Allow all operations on ai_automation_rules" ON ai_automation_rules;
@@ -42,8 +36,6 @@ CREATE POLICY "Allow all" ON message_activity FOR ALL USING (true) WITH CHECK (t
 CREATE POLICY "Allow all" ON tags FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON conversation_tags FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON message_auto_tags FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON pipeline_stages FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all" ON pipeline_opportunities FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON ai_automation_rules FOR ALL USING (true) WITH CHECK (true);
 
 -- Verify RLS is enabled
@@ -56,8 +48,6 @@ ALTER TABLE message_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_auto_tags ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_stages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_automation_rules ENABLE ROW LEVEL SECURITY;
 
 

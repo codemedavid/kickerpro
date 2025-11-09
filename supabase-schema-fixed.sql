@@ -130,32 +130,6 @@ CREATE TABLE IF NOT EXISTS message_auto_tags (
     UNIQUE(message_id)
 );
 
--- Pipeline Stages table
-CREATE TABLE IF NOT EXISTS pipeline_stages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    color TEXT NOT NULL DEFAULT '#6366f1',
-    position INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, name)
-);
-
--- Pipeline Opportunities table
-CREATE TABLE IF NOT EXISTS pipeline_opportunities (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    conversation_id UUID NOT NULL REFERENCES messenger_conversations(id) ON DELETE CASCADE,
-    stage_id UUID NOT NULL REFERENCES pipeline_stages(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    value DECIMAL(10,2),
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(conversation_id)
-);
-
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_users_facebook_id ON users(facebook_id);
 CREATE INDEX IF NOT EXISTS idx_facebook_pages_user_id ON facebook_pages(user_id);
@@ -172,9 +146,6 @@ CREATE INDEX IF NOT EXISTS idx_conversation_tags_conversation_id ON conversation
 CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag_id ON conversation_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_message_auto_tags_message_id ON message_auto_tags(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_auto_tags_tag_id ON message_auto_tags(tag_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_stages_user_id ON pipeline_stages(user_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_user_id ON pipeline_opportunities(user_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_conversation_id ON pipeline_opportunities(conversation_id);
 
 -- Enable RLS
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -186,8 +157,6 @@ ALTER TABLE message_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_auto_tags ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_stages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_opportunities ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (simplified for easier setup)
 CREATE POLICY "Users can view own data" ON users FOR SELECT USING (id::text = auth.uid()::text);
@@ -197,8 +166,6 @@ CREATE POLICY "Users manage own pages" ON facebook_pages FOR ALL USING (user_id:
 CREATE POLICY "Users manage own messages" ON messages FOR ALL USING (created_by::text = auth.uid()::text);
 CREATE POLICY "Users manage own conversations" ON messenger_conversations FOR ALL USING (user_id::text = auth.uid()::text);
 CREATE POLICY "Users manage own tags" ON tags FOR ALL USING (created_by::text = auth.uid()::text);
-CREATE POLICY "Users manage own pipeline stages" ON pipeline_stages FOR ALL USING (user_id::text = auth.uid()::text);
-CREATE POLICY "Users manage own opportunities" ON pipeline_opportunities FOR ALL USING (user_id::text = auth.uid()::text);
 
 -- Grant permissions
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;

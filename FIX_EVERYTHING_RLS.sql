@@ -49,16 +49,6 @@ DROP POLICY IF EXISTS "Allow all operations on conversation_tags" ON conversatio
 DROP POLICY IF EXISTS "Allow all" ON message_auto_tags;
 DROP POLICY IF EXISTS "Allow all operations on message_auto_tags" ON message_auto_tags;
 
--- Pipeline Stages
-DROP POLICY IF EXISTS "Allow all" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users manage own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Allow all operations on pipeline_stages" ON pipeline_stages;
-
--- Pipeline Opportunities
-DROP POLICY IF EXISTS "Allow all" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Users manage own opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Allow all operations on pipeline_opportunities" ON pipeline_opportunities;
-
 -- AI Automation Rules
 DROP POLICY IF EXISTS "Allow all" ON ai_automation_rules;
 DROP POLICY IF EXISTS "Users manage own automations" ON ai_automation_rules;
@@ -95,12 +85,6 @@ CREATE POLICY "allow_all_conversation_tags" ON conversation_tags FOR ALL TO publ
 -- Message Auto Tags
 CREATE POLICY "allow_all_message_auto_tags" ON message_auto_tags FOR ALL TO public, anon, authenticated, service_role USING (true) WITH CHECK (true);
 
--- Pipeline Stages
-CREATE POLICY "allow_all_pipeline_stages" ON pipeline_stages FOR ALL TO public, anon, authenticated, service_role USING (true) WITH CHECK (true);
-
--- Pipeline Opportunities
-CREATE POLICY "allow_all_pipeline_opportunities" ON pipeline_opportunities FOR ALL TO public, anon, authenticated, service_role USING (true) WITH CHECK (true);
-
 -- AI Automation Rules
 CREATE POLICY "allow_all_ai_automation_rules" ON ai_automation_rules FOR ALL TO public, anon, authenticated, service_role USING (true) WITH CHECK (true);
 
@@ -117,8 +101,6 @@ GRANT ALL ON message_activity TO public, anon, authenticated, service_role;
 GRANT ALL ON tags TO public, anon, authenticated, service_role;
 GRANT ALL ON conversation_tags TO public, anon, authenticated, service_role;
 GRANT ALL ON message_auto_tags TO public, anon, authenticated, service_role;
-GRANT ALL ON pipeline_stages TO public, anon, authenticated, service_role;
-GRANT ALL ON pipeline_opportunities TO public, anon, authenticated, service_role;
 GRANT ALL ON ai_automation_rules TO public, anon, authenticated, service_role;
 
 -- ============================================
@@ -134,8 +116,6 @@ ALTER TABLE message_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_auto_tags ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_stages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_automation_rules ENABLE ROW LEVEL SECURITY;
 
 -- ============================================

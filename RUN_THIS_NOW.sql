@@ -95,68 +95,6 @@ WHERE conrelid = 'messages'::regclass
 AND conname = 'messages_recipient_type_check';
 
 -- ================================================================
--- SALES PIPELINE TABLES
--- ================================================================
-
--- Pipeline Stages
-CREATE TABLE IF NOT EXISTS pipeline_stages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    description TEXT,
-    stage_order INTEGER NOT NULL,
-    color TEXT DEFAULT '#3b82f6',
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, name),
-    UNIQUE(user_id, stage_order)
-);
-
--- Opportunities
-CREATE TABLE IF NOT EXISTS opportunities (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    conversation_id UUID REFERENCES messenger_conversations(id) ON DELETE SET NULL,
-    page_id TEXT NOT NULL,
-    contact_name TEXT NOT NULL,
-    contact_id TEXT NOT NULL,
-    stage_id UUID NOT NULL REFERENCES pipeline_stages(id) ON DELETE RESTRICT,
-    title TEXT NOT NULL,
-    description TEXT,
-    value DECIMAL(10, 2) DEFAULT 0,
-    currency TEXT DEFAULT 'USD',
-    probability INTEGER DEFAULT 0 CHECK (probability >= 0 AND probability <= 100),
-    expected_close_date DATE,
-    actual_close_date DATE,
-    status TEXT DEFAULT 'open' CHECK (status IN ('open', 'won', 'lost')),
-    lost_reason TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, contact_id, page_id)
-);
-
--- Opportunity Activities
-CREATE TABLE IF NOT EXISTS opportunity_activities (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
-    activity_type TEXT NOT NULL CHECK (activity_type IN ('stage_change', 'note', 'value_change', 'status_change', 'created')),
-    from_value TEXT,
-    to_value TEXT,
-    description TEXT NOT NULL,
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_opportunities_user_id ON opportunities(user_id);
-CREATE INDEX IF NOT EXISTS idx_opportunities_stage_id ON opportunities(stage_id);
-CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);
-CREATE INDEX IF NOT EXISTS idx_pipeline_stages_user_id ON pipeline_stages(user_id);
-CREATE INDEX IF NOT EXISTS idx_opportunity_activities_opportunity_id ON opportunity_activities(opportunity_id);
-
--- ================================================================
 -- 🔧 MULTI-TENANT FIX: Allow Multiple Users to Manage Same Page
 -- ================================================================
 
@@ -189,7 +127,5 @@ SELECT
   '• Use message tags (bypass 24h window)' as feature_2,
   '• Process in batches (100 per batch)' as feature_3,
   '• Track batch progress' as feature_4,
-  '• Manage sales pipeline' as feature_5,
-  '• Track opportunities and deals' as feature_6,
-  '• Multiple users can manage the same page!' as feature_7;
+  '• Multiple users can manage the same page!' as feature_5;
 
