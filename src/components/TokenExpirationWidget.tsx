@@ -27,77 +27,81 @@ export function TokenExpirationWidget() {
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
+    let cachedExpiresAt: number | null = null;
 
-    const updateTimeRemaining = async () => {
+    const fetchExpirationTime = async () => {
       try {
         // Fetch auth status from the API
         const response = await fetch('/api/auth/check');
         const data = await response.json();
         
         if (data.authenticated && data.cookies?.['fb-access-token']) {
-          // Token expires in 60 days from when it was set
-          // Get the cookie to estimate expiration
+          // Get the cookie to check expiration
           const tokenCookie = document.cookie
             .split('; ')
             .find(row => row.startsWith('fb-token-expires='));
           
-          let expiresAt: number;
-          
           if (tokenCookie) {
             // If we have an explicit expiration cookie, use it
-            expiresAt = parseInt(tokenCookie.split('=')[1]);
+            cachedExpiresAt = parseInt(tokenCookie.split('=')[1]);
           } else {
-            // Estimate: assume token was set recently and expires in 60 days
-            // This is a fallback - we'll add proper tracking
-            expiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+            // Fallback: Set to 60 days from now, but only once
+            cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
           }
 
           setTokenData({
-            expiresAt,
+            expiresAt: cachedExpiresAt,
             userName: data.user?.name
           });
-
-          const now = Date.now();
-          const diff = expiresAt - now;
-
-          if (diff > 0) {
-            const totalSeconds = Math.floor(diff / 1000);
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            const seconds = totalSeconds % 60;
-
-            setTimeRemaining({
-              hours,
-              minutes,
-              seconds,
-              total: totalSeconds,
-            });
-          } else {
-            setTimeRemaining({
-              hours: 0,
-              minutes: 0,
-              seconds: 0,
-              total: 0,
-            });
-          }
         } else {
-          setTimeRemaining(null);
+          cachedExpiresAt = null;
           setTokenData(null);
         }
         setIsLoading(false);
       } catch (error) {
         console.error('Error fetching token status:', error);
-        setTimeRemaining(null);
+        cachedExpiresAt = null;
         setTokenData(null);
         setIsLoading(false);
       }
     };
 
-    // Initial update
-    updateTimeRemaining();
+    const updateTimeRemaining = () => {
+      if (cachedExpiresAt) {
+        const now = Date.now();
+        const diff = cachedExpiresAt - now;
 
-    // Update every second
-    intervalId = setInterval(updateTimeRemaining, 1000);
+        if (diff > 0) {
+          const totalSeconds = Math.floor(diff / 1000);
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+
+          setTimeRemaining({
+            hours,
+            minutes,
+            seconds,
+            total: totalSeconds,
+          });
+        } else {
+          setTimeRemaining({
+            hours: 0,
+            minutes: 0,
+            seconds: 0,
+            total: 0,
+          });
+        }
+      } else {
+        setTimeRemaining(null);
+      }
+    };
+
+    // Initial fetch to get expiration time
+    fetchExpirationTime().then(() => {
+      // Start countdown after we have the expiration time
+      updateTimeRemaining();
+      intervalId = setInterval(updateTimeRemaining, 1000);
+    });
 
     return () => {
       if (intervalId) {
