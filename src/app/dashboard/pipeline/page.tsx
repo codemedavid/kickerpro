@@ -111,7 +111,30 @@ export default function PipelinePage() {
     queryFn: async () => {
       const response = await fetch('/api/pipeline/stages');
       if (!response.ok) throw new Error('Failed to fetch stages');
-      return response.json();
+      const data = await response.json();
+      
+      // If no stages exist, create a default stage
+      if (data.stages && data.stages.length === 0) {
+        const createResponse = await fetch('/api/pipeline/stages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Unmatched',
+            description: 'Contacts that need manual review or AI analysis',
+            color: '#94a3b8',
+            analysis_prompt: 'Review this contact manually to determine the appropriate stage. Consider their engagement level, conversation history, and intent.',
+            is_default: true,
+            position: 999
+          })
+        });
+        
+        if (createResponse.ok) {
+          const createData = await createResponse.json();
+          return { stages: [createData.stage] };
+        }
+      }
+      
+      return data;
     },
     enabled: !!user?.id
   });
@@ -458,15 +481,18 @@ export default function PipelinePage() {
       </div>
 
       {/* Setup Instructions */}
-      {stages.length === 0 && (
+      {stages.length === 1 && stages[0]?.is_default && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="p-6">
             <h3 className="font-semibold text-blue-900 mb-2">🚀 Get Started with Pipeline</h3>
+            <p className="text-sm text-blue-800 mb-3">
+              A default &quot;Unmatched&quot; stage has been created for you. Follow these steps to set up your pipeline:
+            </p>
             <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
               <li>Click &quot;Pipeline Settings&quot; to configure your global analysis instructions</li>
-              <li>Click &quot;Add Stage&quot; to create your first pipeline stage</li>
+              <li>Click &quot;Add Stage&quot; to create additional pipeline stages (e.g., Lead, Qualified, Won)</li>
               <li>Go to Conversations page and select contacts to add to pipeline</li>
-              <li>Click &quot;Analyze All Contacts&quot; to let AI categorize them</li>
+              <li>Click &quot;Analyze All Contacts&quot; to let AI categorize them into stages</li>
             </ol>
           </CardContent>
         </Card>

@@ -36,6 +36,13 @@ The Sales Pipeline system is an intelligent contact management tool that uses AI
 
 ### Step 1: Initial Setup
 
+#### Automatic Default Stage
+
+When you first visit the Sales Pipeline page, a default **"Unmatched"** stage is automatically created for you. This stage serves as:
+- A holding area for newly added contacts
+- A review queue for contacts where AI prompts disagree
+- A catch-all for contacts that don't fit defined stages
+
 #### Configure Global Settings
 
 1. Navigate to **Dashboard → Sales Pipeline**
@@ -370,21 +377,26 @@ Audit trail of stage movements
    -- File: add-pipeline-tables.sql
    ```
 
-2. **Configure Global Prompt**
-   - Go to Pipeline → Settings
+2. **Visit Pipeline Page**
+   - Go to Dashboard → Sales Pipeline
+   - Default "Unmatched" stage is auto-created ✨
+   - See setup instructions on the page
+
+3. **Configure Global Prompt**
+   - Click "Pipeline Settings"
    - Add your analysis framework
 
-3. **Create 3-4 Stages**
+4. **Create 3-4 Stages**
    - Click "Add Stage"
    - Name them based on your funnel
    - Write specific criteria for each
 
-4. **Add Contacts**
+5. **Add Contacts**
    - Go to Conversations page
    - Select some contacts
    - Click "Add to Pipeline"
 
-5. **Run Analysis**
+6. **Run Analysis**
    - Return to Pipeline page
    - Click "Analyze All Contacts"
    - Review results!
