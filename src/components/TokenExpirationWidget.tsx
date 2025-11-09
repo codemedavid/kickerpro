@@ -148,15 +148,21 @@ export function TokenExpirationWidget() {
   };
 
   const formatTime = () => {
+    const totalDays = Math.floor(timeRemaining.total / 86400);
+    const remainingHours = Math.floor((timeRemaining.total % 86400) / 3600);
+    const remainingMinutes = Math.floor((timeRemaining.total % 3600) / 60);
+    const remainingSeconds = timeRemaining.total % 60;
+    
     const parts = [];
     
-    if (timeRemaining.hours > 0) {
-      parts.push(`${timeRemaining.hours}h`);
+    if (totalDays > 0) {
+      parts.push(`${totalDays}d`);
     }
-    if (timeRemaining.minutes > 0 || timeRemaining.hours > 0) {
-      parts.push(`${timeRemaining.minutes}m`);
+    if (remainingHours > 0 || totalDays > 0) {
+      parts.push(`${remainingHours}h`);
     }
-    parts.push(`${timeRemaining.seconds}s`);
+    parts.push(`${remainingMinutes}m`);
+    parts.push(`${remainingSeconds}s`);
     
     return parts.join(' ');
   };
@@ -174,15 +180,23 @@ export function TokenExpirationWidget() {
   };
 
   const formatTimeDetailed = () => {
+    const totalDays = Math.floor(timeRemaining.total / 86400);
+    const remainingHours = Math.floor((timeRemaining.total % 86400) / 3600);
+    const remainingMinutes = Math.floor((timeRemaining.total % 3600) / 60);
+    const remainingSeconds = timeRemaining.total % 60;
+    
     const parts = [];
     
-    if (timeRemaining.hours > 0) {
-      parts.push(`${timeRemaining.hours} hour${timeRemaining.hours > 1 ? 's' : ''}`);
+    if (totalDays > 0) {
+      parts.push(`${totalDays} day${totalDays > 1 ? 's' : ''}`);
     }
-    if (timeRemaining.minutes > 0) {
-      parts.push(`${timeRemaining.minutes} minute${timeRemaining.minutes > 1 ? 's' : ''}`);
+    if (remainingHours > 0 || totalDays > 0) {
+      parts.push(`${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`);
     }
-    parts.push(`${timeRemaining.seconds} second${timeRemaining.seconds > 1 ? 's' : ''}`);
+    if (remainingMinutes > 0 || remainingHours > 0 || totalDays > 0) {
+      parts.push(`${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`);
+    }
+    parts.push(`${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`);
     
     return parts.join(', ');
   };
