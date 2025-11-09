@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
 
       defaultStageId = newStage.id;
     } else {
-      defaultStageId = defaultStage.id;
+      // TypeScript: defaultStage is guaranteed to be non-null here
+      defaultStageId = defaultStage!.id;
     }
 
     // Fetch conversation details
