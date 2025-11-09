@@ -25,3 +25,4 @@ SELECT '✅ AI Automation tracking columns added!' as result;
 
 
 
+

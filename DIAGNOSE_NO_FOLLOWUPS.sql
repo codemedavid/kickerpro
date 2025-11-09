@@ -51,3 +51,4 @@ FROM ai_automation_rules
 WHERE id = '8eea88bd-c9d3-4c67-b624-3696ba520cf4';
 -- Check if max_follow_ups = 1 (only one follow-up allowed)
 
+

@@ -35,3 +35,4 @@ SELECT add_column_if_not_exists('messenger_conversations', 'sender_name', 'TEXT'
 -- Drop the helper function
 DROP FUNCTION add_column_if_not_exists(TEXT, TEXT, TEXT);
 
+

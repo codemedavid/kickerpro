@@ -62,3 +62,4 @@ The system shows previous messages to avoid repetition. Let me reduce that:
 <function_calls>
 <invoke name="read_file">
 <parameter name="target_file">src/app/api/cron/ai-automations/route.ts
+

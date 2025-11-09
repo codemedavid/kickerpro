@@ -1,17 +1,16 @@
 -- ================================================================
--- PIPELINE SYSTEM TABLES - FINAL VERSION
--- Simple and compatible with all PostgreSQL versions
+-- PIPELINE SYSTEM - CLEAN INSTALL
+-- Drops existing tables and recreates them fresh
 -- ================================================================
 
--- Add columns to messenger_conversations if they don't exist (safe approach)
-ALTER TABLE messenger_conversations 
-ADD COLUMN IF NOT EXISTS sender_id TEXT;
-
-ALTER TABLE messenger_conversations 
-ADD COLUMN IF NOT EXISTS sender_name TEXT;
+-- Drop existing tables (in reverse dependency order)
+DROP TABLE IF EXISTS pipeline_stage_history CASCADE;
+DROP TABLE IF EXISTS pipeline_opportunities CASCADE;
+DROP TABLE IF EXISTS pipeline_settings CASCADE;
+DROP TABLE IF EXISTS pipeline_stages CASCADE;
 
 -- Pipeline Stages Table
-CREATE TABLE IF NOT EXISTS pipeline_stages (
+CREATE TABLE pipeline_stages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -26,11 +25,8 @@ CREATE TABLE IF NOT EXISTS pipeline_stages (
     UNIQUE(user_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_stages_user_id ON pipeline_stages(user_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_stages_position ON pipeline_stages(position);
-
--- Pipeline Global Settings Table
-CREATE TABLE IF NOT EXISTS pipeline_settings (
+-- Pipeline Settings Table
+CREATE TABLE pipeline_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     global_analysis_prompt TEXT NOT NULL,
@@ -40,10 +36,8 @@ CREATE TABLE IF NOT EXISTS pipeline_settings (
     UNIQUE(user_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_settings_user_id ON pipeline_settings(user_id);
-
 -- Pipeline Opportunities Table
-CREATE TABLE IF NOT EXISTS pipeline_opportunities (
+CREATE TABLE pipeline_opportunities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     conversation_id UUID NOT NULL REFERENCES messenger_conversations(id) ON DELETE CASCADE,
@@ -65,13 +59,8 @@ CREATE TABLE IF NOT EXISTS pipeline_opportunities (
     UNIQUE(user_id, conversation_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_user_id ON pipeline_opportunities(user_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_stage_id ON pipeline_opportunities(stage_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_conversation_id ON pipeline_opportunities(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_opportunities_sender_id ON pipeline_opportunities(sender_id);
-
 -- Pipeline Stage History Table
-CREATE TABLE IF NOT EXISTS pipeline_stage_history (
+CREATE TABLE pipeline_stage_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     opportunity_id UUID NOT NULL REFERENCES pipeline_opportunities(id) ON DELETE CASCADE,
     from_stage_id UUID REFERENCES pipeline_stages(id) ON DELETE SET NULL,
@@ -82,21 +71,26 @@ CREATE TABLE IF NOT EXISTS pipeline_stage_history (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_stage_history_opportunity_id ON pipeline_stage_history(opportunity_id);
-CREATE INDEX IF NOT EXISTS idx_pipeline_stage_history_created_at ON pipeline_stage_history(created_at DESC);
+-- Create Indexes
+CREATE INDEX idx_pipeline_stages_user_id ON pipeline_stages(user_id);
+CREATE INDEX idx_pipeline_stages_position ON pipeline_stages(position);
+CREATE INDEX idx_pipeline_settings_user_id ON pipeline_settings(user_id);
+CREATE INDEX idx_pipeline_opportunities_user_id ON pipeline_opportunities(user_id);
+CREATE INDEX idx_pipeline_opportunities_stage_id ON pipeline_opportunities(stage_id);
+CREATE INDEX idx_pipeline_opportunities_conversation_id ON pipeline_opportunities(conversation_id);
+CREATE INDEX idx_pipeline_opportunities_sender_id ON pipeline_opportunities(sender_id);
+CREATE INDEX idx_pipeline_stage_history_opportunity_id ON pipeline_stage_history(opportunity_id);
+CREATE INDEX idx_pipeline_stage_history_created_at ON pipeline_stage_history(created_at DESC);
 
--- Add triggers for updated_at
-DROP TRIGGER IF EXISTS update_pipeline_stages_updated_at ON pipeline_stages;
+-- Add triggers
 CREATE TRIGGER update_pipeline_stages_updated_at 
     BEFORE UPDATE ON pipeline_stages 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_pipeline_settings_updated_at ON pipeline_settings;
 CREATE TRIGGER update_pipeline_settings_updated_at 
     BEFORE UPDATE ON pipeline_settings 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_pipeline_opportunities_updated_at ON pipeline_opportunities;
 CREATE TRIGGER update_pipeline_opportunities_updated_at 
     BEFORE UPDATE ON pipeline_opportunities 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -107,22 +101,7 @@ ALTER TABLE pipeline_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_stage_history ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies
-DROP POLICY IF EXISTS "Users can view their own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users can create their own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users can update their own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users can delete their own pipeline stages" ON pipeline_stages;
-DROP POLICY IF EXISTS "Users can view their own pipeline settings" ON pipeline_settings;
-DROP POLICY IF EXISTS "Users can create their own pipeline settings" ON pipeline_settings;
-DROP POLICY IF EXISTS "Users can update their own pipeline settings" ON pipeline_settings;
-DROP POLICY IF EXISTS "Users can view their own pipeline opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Users can create their own pipeline opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Users can update their own pipeline opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Users can delete their own pipeline opportunities" ON pipeline_opportunities;
-DROP POLICY IF EXISTS "Users can view their own pipeline stage history" ON pipeline_stage_history;
-DROP POLICY IF EXISTS "Users can create their own pipeline stage history" ON pipeline_stage_history;
-
--- Create policies
+-- Create RLS Policies
 CREATE POLICY "Users can view their own pipeline stages"
     ON pipeline_stages FOR SELECT
     USING (user_id::text = auth.uid()::text);

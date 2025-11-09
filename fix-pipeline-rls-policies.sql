@@ -53,3 +53,4 @@ CREATE POLICY "Allow authenticated users to manage pipeline stage history"
 -- Note: Security is handled at the API level where user_id is checked
 -- All queries filter by user_id from the authenticated session
 
+
