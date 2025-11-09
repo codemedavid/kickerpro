@@ -190,7 +190,7 @@ export default function BulkCreateOpportunitiesPage() {
       const fullContacts = JSON.parse(contactsWithIds);
       const conversationIds = fullContacts.map((c: any) => c.id);
 
-      const response = await fetch('/api/ai/classify-stage', {
+      const response = await fetch('/api/leads/classify-pipeline-stage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

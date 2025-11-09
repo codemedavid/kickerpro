@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
         console.log(`[Sync Conversations] Auto-scoring ${syncedConversationIds.size} conversations...`);
         
         // Trigger scoring asynchronously (don't wait for completion)
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/ai/score-leads`, {
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/leads/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -581,7 +581,7 @@ export default function ConversationsPage() {
     try {
       const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
       
-      const response = await fetch('/api/ai/score-leads', {
+      const response = await fetch('/api/leads/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -643,7 +643,7 @@ export default function ConversationsPage() {
     try {
       const selectedPage = pages.find(p => p.facebook_page_id === selectedPageId) || pages[0];
       
-      const response = await fetch('/api/ai/auto-create-opportunities', {
+      const response = await fetch('/api/opportunities/auto-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
