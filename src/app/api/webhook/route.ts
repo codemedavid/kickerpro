@@ -44,12 +44,12 @@ export async function POST(request: NextRequest) {
             
             if (!isEcho && event.message.text) {
               // This is a real user message with text
-              await handleMessage(event);
+            await handleMessage(event);
             }
             
             // 🛑 STOP AUTOMATIONS when contact replies (not on echo messages)
             if (!isEcho) {
-              await handleReplyDetection(event);
+            await handleReplyDetection(event);
             }
           }
         }

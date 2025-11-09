@@ -325,6 +325,107 @@ export async function GET(request: NextRequest) {
                 continue;
               }
 
+              // 🔴 LIVE FACEBOOK CHECK: Fetch fresh conversation data FIRST (before cooldown check)
+              // This ensures we detect replies even during cooldown period
+              console.log(`      🔍 Fetching live conversation data from Facebook...`);
+              let shouldStopDueToReply = false;
+              
+              try {
+                const fbConvoUrl = `https://graph.facebook.com/v18.0/me/conversations?user_id=${conv.sender_id}&fields=messages.limit(5){from,message,created_time}&access_token=${page.access_token}`;
+                const fbResponse = await fetch(fbConvoUrl);
+                const fbData = await fbResponse.json();
+                
+                if (fbResponse.ok && fbData.data && fbData.data[0]?.messages?.data) {
+                  const recentMessages = fbData.data[0].messages.data;
+                  
+                  // Check if any recent messages are from the user (not from page)
+                  const userMessages = recentMessages.filter((msg: any) => 
+                    msg.from?.id === conv.sender_id
+                  );
+                  
+                  if (userMessages.length > 0) {
+                    const lastUserMessage = userMessages[0];
+                    const lastUserMessageTime = new Date(lastUserMessage.created_time);
+                    const timeSinceUserMessage = Date.now() - lastUserMessageTime.getTime();
+                    const minutesSinceUserMessage = Math.floor(timeSinceUserMessage / 60000);
+                    
+                    console.log(`      📊 Last user message: ${minutesSinceUserMessage} minutes ago`);
+                    
+                    // If user messaged within the time interval, they're engaged - stop permanently!
+                    if (minutesSinceUserMessage < totalMinutes) {
+                      console.log(`      ⏭️  User replied ${minutesSinceUserMessage} minutes ago (within ${totalMinutes} min interval)`);
+                      console.log(`      💬 Their message: "${lastUserMessage.message?.substring(0, 50)}..."`);
+                      
+                      // Update conversation in database with fresh timestamp
+                      await supabase
+                        .from('messenger_conversations')
+                        .update({
+                          last_message_time: lastUserMessageTime.toISOString()
+                        })
+                        .eq('id', conv.id);
+                      
+                      // 🛑 STOP the automation permanently if stop_on_reply is enabled
+                      if (rule.stop_on_reply) {
+                        console.log(`      🛑 Stopping automation PERMANENTLY (user replied - detected by live check)`);
+                        
+                        // Check if already stopped
+                        const { data: existingStop } = await supabase
+                          .from('ai_automation_stops')
+                          .select('id')
+                          .eq('rule_id', rule.id)
+                          .eq('conversation_id', conv.id)
+                          .single();
+                        
+                        if (!existingStop) {
+                          // Create stop record
+                          await supabase
+                            .from('ai_automation_stops')
+                            .insert({
+                              rule_id: rule.id,
+                              conversation_id: conv.id,
+                              sender_id: conv.sender_id,
+                              stopped_reason: 'contact_replied_live_check',
+                              follow_ups_sent: 0
+                            });
+                          
+                          console.log(`      ✅ Stop record created - won't send again`);
+                          
+                          // Remove all trigger tags
+                          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
+                            console.log(`      🏷️  Removing ${rule.include_tag_ids.length} trigger tag(s)...`);
+                            
+                            for (const tagId of rule.include_tag_ids) {
+                              await supabase
+                                .from('conversation_tags')
+                                .delete()
+                                .eq('conversation_id', conv.id)
+                                .eq('tag_id', tagId);
+                              
+                              console.log(`      🏷️     ✓ Removed trigger tag: ${tagId}`);
+                            }
+                          }
+                        } else {
+                          console.log(`      ℹ️  Already stopped`);
+                        }
+                      }
+                      
+                      shouldStopDueToReply = true;
+                    } else {
+                      console.log(`      ✅ Live check OK - Last user message was ${minutesSinceUserMessage} minutes ago (outside interval)`);
+                    }
+                  }
+                } else {
+                  console.log(`      ⚠️  Could not fetch live data from Facebook - will check cooldown`);
+                }
+              } catch (fbError) {
+                console.log(`      ⚠️  Facebook fetch error:`, fbError instanceof Error ? fbError.message : 'Unknown');
+              }
+              
+              // If user replied (detected by live check), skip this contact
+              if (shouldStopDueToReply) {
+                continue;
+              }
+
               // Check if the LAST execution was MORE than the time interval ago
               // This ensures we re-process contacts every time the interval finishes
               const { data: lastExecution } = await supabase
@@ -351,96 +452,6 @@ export async function GET(request: NextRequest) {
                 console.log(`      ✅ Ready to process - last execution was ${minutesSinceLastExecution} minutes ago (interval: ${totalMinutes} minutes)`);
               } else {
                 console.log(`      ✅ Ready to process - never processed before`);
-              }
-
-              // 🔴 LIVE FACEBOOK CHECK: Fetch fresh conversation data before sending
-              // This ensures we don't send if user replied recently
-              console.log(`      🔍 Fetching live conversation data from Facebook...`);
-              try {
-                const fbConvoUrl = `https://graph.facebook.com/v18.0/me/conversations?user_id=${conv.sender_id}&fields=messages.limit(5){from,message,created_time}&access_token=${page.access_token}`;
-                const fbResponse = await fetch(fbConvoUrl);
-                const fbData = await fbResponse.json();
-                
-                if (fbResponse.ok && fbData.data && fbData.data[0]?.messages?.data) {
-                  const recentMessages = fbData.data[0].messages.data;
-                  
-                  // Check if any recent messages are from the user (not from page)
-                  const userMessages = recentMessages.filter((msg: any) => 
-                    msg.from?.id === conv.sender_id
-                  );
-                  
-                  if (userMessages.length > 0) {
-                    const lastUserMessage = userMessages[0];
-                    const lastUserMessageTime = new Date(lastUserMessage.created_time);
-                    const timeSinceUserMessage = Date.now() - lastUserMessageTime.getTime();
-                    const minutesSinceUserMessage = Math.floor(timeSinceUserMessage / 60000);
-                    
-                    // If user messaged within the time interval, they're engaged - don't send!
-                    if (minutesSinceUserMessage < totalMinutes) {
-                      console.log(`      ⏭️  SKIPPED - User replied ${minutesSinceUserMessage} minutes ago (live check)`);
-                      console.log(`      💬 Their message: "${lastUserMessage.message?.substring(0, 50)}..."`);
-                      
-                      // Update conversation in database with fresh timestamp
-                      await supabase
-                        .from('messenger_conversations')
-                        .update({
-                          last_message_time: lastUserMessageTime.toISOString()
-                        })
-                        .eq('id', conv.id);
-                      
-                      // 🛑 STOP the automation permanently if stop_on_reply is enabled
-                      if (rule.stop_on_reply) {
-                        console.log(`      🛑 Stopping automation permanently (user replied)`);
-                        
-                        // Check if already stopped
-                        const { data: existingStop } = await supabase
-                          .from('ai_automation_stops')
-                          .select('id')
-                          .eq('rule_id', rule.id)
-                          .eq('conversation_id', conv.id)
-                          .single();
-                        
-                        if (!existingStop) {
-                          // Create stop record
-                          await supabase
-                            .from('ai_automation_stops')
-                            .insert({
-                              rule_id: rule.id,
-                              conversation_id: conv.id,
-                              sender_id: conv.sender_id,
-                              stopped_reason: 'contact_replied_live_check',
-                              follow_ups_sent: 0 // Detected before sending
-                            });
-                          
-                          console.log(`      ✅ Automation stopped - won't send again unless tags re-added`);
-                          
-                          // Remove all trigger tags
-                          if (rule.include_tag_ids && rule.include_tag_ids.length > 0) {
-                            console.log(`      🏷️  Removing ${rule.include_tag_ids.length} trigger tag(s)...`);
-                            
-                            for (const tagId of rule.include_tag_ids) {
-                              await supabase
-                                .from('conversation_tags')
-                                .delete()
-                                .eq('conversation_id', conv.id)
-                                .eq('tag_id', tagId);
-                              
-                              console.log(`      🏷️     ✓ Removed trigger tag: ${tagId}`);
-                            }
-                          }
-                        }
-                      }
-                      
-                      continue; // Skip this contact
-                    }
-                    
-                    console.log(`      ✅ Live check OK - Last user message was ${minutesSinceUserMessage} minutes ago`);
-                  }
-                } else {
-                  console.log(`      ⚠️  Could not fetch live data from Facebook (will use database data)`);
-                }
-              } catch (fbError) {
-                console.log(`      ⚠️  Facebook fetch error (will use database data):`, fbError instanceof Error ? fbError.message : 'Unknown');
               }
 
               // Create execution record
