@@ -3,7 +3,7 @@
  * Ensures we handle API schema changes gracefully
  */
 
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 
 // ============================================================================
 // FACEBOOK API SCHEMAS
@@ -102,10 +102,10 @@ export function validateParticipant(data: unknown): Participant | null {
   try {
     return ParticipantSchema.parse(data);
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       console.warn('[API Validation] Invalid participant:', {
         data,
-        errors: error.errors
+        errors: error.issues
       });
     }
     return null;
@@ -119,10 +119,10 @@ export function validateMessage(data: unknown): Message | null {
   try {
     return MessageSchema.parse(data);
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       console.warn('[API Validation] Invalid message:', {
         data,
-        errors: error.errors
+        errors: error.issues
       });
     }
     return null;
@@ -136,10 +136,10 @@ export function validateConversation(data: unknown): Conversation | null {
   try {
     return ConversationSchema.parse(data);
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       console.warn('[API Validation] Invalid conversation:', {
         data,
-        errors: error.errors
+        errors: error.issues
       });
     }
     return null;
@@ -168,15 +168,15 @@ export function validateFacebookResponse(
       data: validated
     };
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       console.error('[API Validation] Response validation failed:', {
-        errors: error.errors,
+        errors: error.issues,
         data
       });
       
       return {
         success: false,
-        error: `Invalid Facebook API response structure: ${error.errors.map(e => e.message).join(', ')}`
+        error: `Invalid Facebook API response structure: ${error.issues.map(e => e.message).join(', ')}`
       };
     }
     

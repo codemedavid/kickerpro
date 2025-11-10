@@ -3,7 +3,7 @@
  * Addresses critical race condition and data consistency issues
  */
 
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient, SupabaseClient } from '@supabase/supabase-js';
 
 interface WebhookEvent {
   sender?: { id: string };
@@ -154,7 +154,7 @@ async function handleReplyDetectionFixed(
   senderPSID: string,
   pagePSID: string,
   senderName: string,
-  supabase: ReturnType<typeof createSupabaseClient>
+  supabase: SupabaseClient
 ) {
   try {
     console.log(`[Reply Detector Fixed] 💬 Contact replied: ${senderName} (${senderPSID})`);
