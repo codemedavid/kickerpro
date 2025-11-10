@@ -30,10 +30,48 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook, User, Activity, Target, Award } from 'lucide-react';
+import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook, User, Activity, Target, Award, Edit2, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendedWindow } from '@/types/database';
 import { useAuth } from '@/hooks/use-auth';
+
+// Common timezones list
+const COMMON_TIMEZONES = [
+  { label: 'UTC', value: 'UTC' },
+  { label: 'US Eastern (New York)', value: 'America/New_York' },
+  { label: 'US Central (Chicago)', value: 'America/Chicago' },
+  { label: 'US Mountain (Denver)', value: 'America/Denver' },
+  { label: 'US Pacific (Los Angeles)', value: 'America/Los_Angeles' },
+  { label: 'UK (London)', value: 'Europe/London' },
+  { label: 'Europe Central (Paris)', value: 'Europe/Paris' },
+  { label: 'Europe Eastern (Athens)', value: 'Europe/Athens' },
+  { label: 'India (Kolkata)', value: 'Asia/Kolkata' },
+  { label: 'China (Shanghai)', value: 'Asia/Shanghai' },
+  { label: 'Japan (Tokyo)', value: 'Asia/Tokyo' },
+  { label: 'Singapore', value: 'Asia/Singapore' },
+  { label: 'Australia Eastern (Sydney)', value: 'Australia/Sydney' },
+  { label: 'Australia Central (Adelaide)', value: 'Australia/Adelaide' },
+  { label: 'Australia Western (Perth)', value: 'Australia/Perth' },
+  { label: 'Dubai (UAE)', value: 'Asia/Dubai' },
+  { label: 'Hong Kong', value: 'Asia/Hong_Kong' },
+  { label: 'Moscow', value: 'Europe/Moscow' },
+  { label: 'Brazil (São Paulo)', value: 'America/Sao_Paulo' },
+  { label: 'Argentina (Buenos Aires)', value: 'America/Argentina/Buenos_Aires' },
+  { label: 'Mexico City', value: 'America/Mexico_City' },
+  { label: 'Toronto', value: 'America/Toronto' },
+  { label: 'Vancouver', value: 'America/Vancouver' },
+  { label: 'Berlin', value: 'Europe/Berlin' },
+  { label: 'Rome', value: 'Europe/Rome' },
+  { label: 'Madrid', value: 'Europe/Madrid' },
+  { label: 'Amsterdam', value: 'Europe/Amsterdam' },
+  { label: 'Stockholm', value: 'Europe/Stockholm' },
+  { label: 'Bangkok', value: 'Asia/Bangkok' },
+  { label: 'Manila', value: 'Asia/Manila' },
+  { label: 'Seoul', value: 'Asia/Seoul' },
+  { label: 'Taipei', value: 'Asia/Taipei' },
+  { label: 'Jakarta', value: 'Asia/Jakarta' },
+  { label: 'New Zealand (Auckland)', value: 'Pacific/Auckland' },
+];
 
 interface FacebookPage {
   id: string;
@@ -98,6 +136,8 @@ export default function BestTimeToContactPage() {
   });
   const [selectedContact, setSelectedContact] = useState<ContactRecommendation | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [editingTimezone, setEditingTimezone] = useState(false);
+  const [newTimezone, setNewTimezone] = useState<string>('');
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -233,6 +273,45 @@ export default function BestTimeToContactPage() {
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
     return `${Math.floor(diffDays / 30)} months ago`;
+  };
+
+  const handleUpdateTimezone = async () => {
+    if (!selectedContact || !newTimezone) return;
+
+    try {
+      const response = await fetch('/api/contact-timing/update-timezone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: selectedContact.conversation_id,
+          timezone: newTimezone,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update timezone');
+      }
+
+      toast.success('Timezone updated! Recomputing best times...');
+      
+      // Update local state
+      setSelectedContact({
+        ...selectedContact,
+        timezone: newTimezone,
+        timezone_confidence: 'high',
+        timezone_source: 'manual_override',
+      });
+      
+      setEditingTimezone(false);
+      
+      // Refresh recommendations after a short delay
+      setTimeout(() => {
+        fetchRecommendations();
+      }, 2000);
+    } catch (error) {
+      console.error('Error updating timezone:', error);
+      toast.error('Failed to update timezone');
+    }
   };
 
   return (
@@ -625,26 +704,80 @@ export default function BestTimeToContactPage() {
               {/* Timezone Info */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <MapPin className="h-4 w-4" />
-                    Timezone Information
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <MapPin className="h-4 w-4" />
+                      Timezone Information
+                    </CardTitle>
+                    {!editingTimezone && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingTimezone(true);
+                          setNewTimezone(selectedContact.timezone);
+                        }}
+                      >
+                        <Edit2 className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Detected Timezone:</span>
-                      <span className="font-mono font-medium">{selectedContact.timezone}</span>
+                  {editingTimezone ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Select Timezone</label>
+                        <Select value={newTimezone} onValueChange={setNewTimezone}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select timezone" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px]">
+                            {COMMON_TIMEZONES.map((tz) => (
+                              <SelectItem key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={handleUpdateTimezone} size="sm" className="flex-1">
+                          <Save className="h-3 w-3 mr-1" />
+                          Save & Recompute
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingTimezone(false);
+                            setNewTimezone('');
+                          }}
+                        >
+                          <X className="h-3 w-3 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Confidence:</span>
-                      {getTimezoneConfidenceBadge(selectedContact.timezone_confidence)}
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Current Timezone:</span>
+                        <span className="font-mono font-medium">{selectedContact.timezone}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Confidence:</span>
+                        {getTimezoneConfidenceBadge(selectedContact.timezone_confidence)}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Detection Method:</span>
+                        <Badge variant="outline">
+                          {selectedContact.timezone_source === 'manual_override' ? '✏️ Manual' : selectedContact.timezone_source || 'Activity Pattern'}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Detection Method:</span>
-                      <Badge variant="outline">{selectedContact.timezone_source || 'Activity Pattern'}</Badge>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 
