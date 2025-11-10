@@ -539,5 +539,3 @@ if (require.main === module) {
     });
 }
 
-export { runEdgeCaseTests };
-

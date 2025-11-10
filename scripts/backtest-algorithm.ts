@@ -262,5 +262,3 @@ if (require.main === module) {
     });
 }
 
-export { runBacktest };
-

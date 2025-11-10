@@ -341,5 +341,3 @@ if (require.main === module) {
     });
 }
 
-export { runCompleteWorkflow };
-

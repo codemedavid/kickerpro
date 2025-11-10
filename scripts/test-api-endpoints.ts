@@ -271,5 +271,3 @@ if (require.main === module) {
     });
 }
 
-export { runAPITests };
-

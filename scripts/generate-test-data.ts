@@ -310,5 +310,3 @@ if (require.main === module) {
     });
 }
 
-export { generateTestData, TEST_SCENARIOS };
-

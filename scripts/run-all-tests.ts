@@ -289,5 +289,3 @@ if (require.main === module) {
     });
 }
 
-export { runAllTests };
-
