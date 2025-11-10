@@ -133,6 +133,24 @@ export async function POST(request: NextRequest) {
                     const isNew = row.created_at === row.updated_at;
                     if (isNew) {
                       insertedCount++;
+                      
+                      // Create initial interaction event for new conversations
+                      // This provides data for Best Time to Contact algorithm
+                      await supabase.from('contact_interaction_events').insert({
+                        user_id: userId,
+                        conversation_id: row.id,
+                        sender_id: participant.id,
+                        event_type: 'message_replied',
+                        event_timestamp: lastTime,
+                        channel: 'messenger',
+                        is_outbound: false,
+                        is_success: true,
+                        success_weight: 1.0,
+                        metadata: {
+                          source: 'initial_sync',
+                          synced_at: new Date().toISOString()
+                        }
+                      }).select();
                     } else {
                       updatedCount++;
                     }

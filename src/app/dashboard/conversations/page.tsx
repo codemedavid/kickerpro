@@ -312,6 +312,32 @@ export default function ConversationsPage() {
         title: "Sync Complete!",
         description: `Synced ${(data.inserted ?? 0) + (data.updated ?? 0)} conversation(s) from Facebook`
       });
+
+      // Trigger contact timing computation if new conversations were added
+      if (data.inserted && data.inserted > 0) {
+        toast({
+          title: "Computing Contact Times",
+          description: "Analyzing best times to contact...",
+        });
+        
+        fetch('/api/contact-timing/compute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recompute_all: true })
+        })
+          .then(res => res.json())
+          .then(result => {
+            if (result.success) {
+              toast({
+                title: "Contact Timing Ready!",
+                description: `Computed times for ${result.processed} contacts`,
+              });
+            }
+          })
+          .catch(error => {
+            console.error('Error computing contact times:', error);
+          });
+      }
     },
     onError: (error) => {
       toast({

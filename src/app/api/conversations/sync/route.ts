@@ -116,6 +116,24 @@ export async function POST(request: NextRequest) {
                 syncedConversationIds.add(row.id);
                 if (row.created_at === row.updated_at) {
                   insertedCount++;
+                  
+                  // Create initial interaction event for new conversations
+                  // This gives the algorithm data to work with
+                  await supabase.from('contact_interaction_events').insert({
+                    user_id: userId,
+                    conversation_id: row.id,
+                    sender_id: participant.id,
+                    event_type: 'message_replied',
+                    event_timestamp: lastTime,
+                    channel: 'messenger',
+                    is_outbound: false,
+                    is_success: true,
+                    success_weight: 1.0,
+                    metadata: {
+                      source: 'initial_sync',
+                      synced_at: new Date().toISOString()
+                    }
+                  }).select();
                 } else {
                   updatedCount++;
                 }
@@ -148,8 +166,7 @@ export async function POST(request: NextRequest) {
       inserted: insertedCount,
       updated: updatedCount,
       total: totalConversations,
-      message: `Synced ${uniqueSynced} conversation(s) from Facebook`,
-      shouldComputeContactTiming: uniqueSynced > 0
+      message: `Synced ${uniqueSynced} conversation(s) from Facebook`
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);
