@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
                 console.log(`[Reply Detector] 🏷️✨ Auto-removed "AI" tag for ${senderPSID}`);
               }
             }
-          } catch (aiTagError) {
+          } catch {
             // Don't fail if AI tag doesn't exist or removal fails
             console.log(`[Reply Detector] ℹ️ No "AI" tag found to remove (might not exist)`);
           }

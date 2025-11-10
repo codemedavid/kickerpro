@@ -339,7 +339,7 @@ export async function GET(request: NextRequest) {
                   const recentMessages = fbData.data[0].messages.data;
                   
                   // Check if any recent messages are from the user (not from page)
-                  const userMessages = recentMessages.filter((msg: any) => 
+                  const userMessages = recentMessages.filter((msg: { from?: { id?: string }; created_time?: string }) => 
                     msg.from?.id === conv.sender_id
                   );
                   

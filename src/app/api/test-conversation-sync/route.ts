@@ -30,7 +30,7 @@ export async function GET() {
 
     // Test each page's conversations endpoint
     for (const page of pages.slice(0, 3)) { // Test first 3 pages
-      const testResult: any = {
+      const testResult: Record<string, unknown> = {
         pageName: page.name,
         pageId: page.facebook_page_id,
         hasToken: !!page.access_token
@@ -62,9 +62,9 @@ export async function GET() {
             };
           }
         }
-      } catch (e: any) {
+      } catch (e) {
         testResult.status = '❌ Exception';
-        testResult.error = e.message;
+        testResult.error = e instanceof Error ? e.message : 'Unknown error';
       }
 
       results.push(testResult);
@@ -85,6 +85,9 @@ export async function GET() {
     }, { status: 500 });
   }
 }
+
+
+
 
 
 

@@ -169,7 +169,7 @@ export async function GET(_request: NextRequest) {
 
     const testMessage = `🧪 Test message from KickerPro - ${new Date().toLocaleTimeString()}`;
 
-    const sendPayload: any = {
+    const sendPayload: Record<string, unknown> = {
       recipient: { id: testRecipient.sender_id },
       message: { text: testMessage },
       access_token: page.access_token,
@@ -261,8 +261,8 @@ export async function GET(_request: NextRequest) {
     }
 
     // Final Summary
-    const passed = results.tests.filter((t: any) => t.status === 'pass').length;
-    const failed = results.tests.filter((t: any) => t.status === 'fail').length;
+    const passed = results.tests.filter((t: { status: string }) => t.status === 'pass').length;
+    const failed = results.tests.filter((t: { status: string }) => t.status === 'fail').length;
 
     results.summary = {
       total_tests: results.tests.length,

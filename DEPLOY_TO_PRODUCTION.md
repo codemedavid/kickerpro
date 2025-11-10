@@ -235,3 +235,6 @@ https://kickerpro.vercel.app  ← Probably this!
 
 **Both should be in Facebook App settings so you can test locally AND run in production!**
 
+
+
+

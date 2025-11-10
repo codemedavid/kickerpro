@@ -2,13 +2,22 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 
+interface RLSCheckResult {
+  cookies: {
+    userId: string;
+    accessToken: string;
+  };
+  tests: Record<string, string>;
+  overall?: string;
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
     const supabase = await createClient();
 
-    const checks: any = {
+    const checks: RLSCheckResult = {
       cookies: {
         userId: userId ? 'Present' : 'Missing',
         accessToken: cookieStore.get('fb-access-token')?.value ? 'Present' : 'Missing'
@@ -18,10 +27,10 @@ export async function GET() {
 
     // Test 1: Can we query users table?
     try {
-      const { data, error } = await supabase.from('users').select('id').limit(1);
+      const { error } = await supabase.from('users').select('id').limit(1);
       checks.tests.users_select = error ? `❌ ${error.message}` : '✅ OK';
-    } catch (e: any) {
-      checks.tests.users_select = `❌ ${e.message}`;
+    } catch (e) {
+      checks.tests.users_select = `❌ ${e instanceof Error ? e.message : 'Unknown error'}`;
     }
 
     // Test 2: Can we insert into users table?
@@ -41,24 +50,24 @@ export async function GET() {
       } else {
         checks.tests.users_insert = `❌ ${error.message}`;
       }
-    } catch (e: any) {
-      checks.tests.users_insert = `❌ ${e.message}`;
+    } catch (e) {
+      checks.tests.users_insert = `❌ ${e instanceof Error ? e.message : 'Unknown error'}`;
     }
 
     // Test 3: Can we query facebook_pages?
     try {
-      const { data, error } = await supabase.from('facebook_pages').select('id').limit(1);
+      const { error } = await supabase.from('facebook_pages').select('id').limit(1);
       checks.tests.facebook_pages_select = error ? `❌ ${error.message}` : '✅ OK';
-    } catch (e: any) {
-      checks.tests.facebook_pages_select = `❌ ${e.message}`;
+    } catch (e) {
+      checks.tests.facebook_pages_select = `❌ ${e instanceof Error ? e.message : 'Unknown error'}`;
     }
 
     // Test 4: Can we query messenger_conversations?
     try {
-      const { data, error } = await supabase.from('messenger_conversations').select('id').limit(1);
+      const { error } = await supabase.from('messenger_conversations').select('id').limit(1);
       checks.tests.messenger_conversations_select = error ? `❌ ${error.message}` : '✅ OK';
-    } catch (e: any) {
-      checks.tests.messenger_conversations_select = `❌ ${e.message}`;
+    } catch (e) {
+      checks.tests.messenger_conversations_select = `❌ ${e instanceof Error ? e.message : 'Unknown error'}`;
     }
 
     // Test 5: Can we insert into messenger_conversations?
@@ -84,8 +93,8 @@ export async function GET() {
       } else {
         checks.tests.messenger_conversations_insert = '⚠️ No userId to test';
       }
-    } catch (e: any) {
-      checks.tests.messenger_conversations_insert = `❌ ${e.message}`;
+    } catch (e) {
+      checks.tests.messenger_conversations_insert = `❌ ${e instanceof Error ? e.message : 'Unknown error'}`;
     }
 
     // Overall status
@@ -99,6 +108,9 @@ export async function GET() {
     }, { status: 500 });
   }
 }
+
+
+
 
 
 

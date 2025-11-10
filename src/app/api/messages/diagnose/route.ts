@@ -128,7 +128,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function diagnoseIssue(message: any, batches: any[] | null, page: any, stuckForSeconds: number): any {
+function diagnoseIssue(
+  message: Record<string, unknown>, 
+  batches: Array<Record<string, unknown>> | null, 
+  page: Record<string, unknown>, 
+  stuckForSeconds: number
+): Record<string, unknown> {
   const issues = [];
   const recommendations = [];
 

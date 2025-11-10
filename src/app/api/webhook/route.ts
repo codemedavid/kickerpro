@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { withPooledClient } from '@/lib/supabase/pool';
 import { invalidateConversationCache, setCached, getCached } from '@/lib/redis/client';
 
 // Webhook verification (GET request from Facebook)
@@ -226,7 +225,7 @@ async function handleReplyDetection(event: WebhookEvent) {
           console.log(`[Reply Detector] 🏷️✨ Auto-removed "AI" tag for ${conversation.sender_name || senderPSID}`);
         }
       }
-    } catch (aiTagError) {
+    } catch {
       // Don't fail if AI tag doesn't exist or removal fails
       console.log(`[Reply Detector] ℹ️ No "AI" tag found to remove (might not exist)`);
     }

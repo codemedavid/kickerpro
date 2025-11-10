@@ -59,15 +59,15 @@ class MemoryCache implements RedisClient {
 }
 
 // Create Redis client or fallback to memory cache
-function createRedisClient(): RedisClient {
+async function createRedisClient(): Promise<RedisClient> {
   const redisUrl = process.env.REDIS_URL;
 
   if (redisUrl) {
     try {
       // Try to use ioredis if available
       // Note: Install with: npm install ioredis
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Redis = require('ioredis');
+       
+      const { default: Redis } = await import('ioredis');
       const redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
         retryStrategy: (times: number) => {
@@ -88,7 +88,7 @@ function createRedisClient(): RedisClient {
       });
 
       return redis;
-    } catch (error) {
+    } catch {
       console.warn('[Redis] ioredis not installed, using memory cache. Install with: npm install ioredis');
     }
   }
@@ -101,19 +101,19 @@ function createRedisClient(): RedisClient {
 }
 
 // Singleton instance
-let redisClient: RedisClient | null = null;
+let redisClientPromise: Promise<RedisClient> | null = null;
 
-export function getRedisClient(): RedisClient {
-  if (!redisClient) {
-    redisClient = createRedisClient();
+export function getRedisClient(): Promise<RedisClient> {
+  if (!redisClientPromise) {
+    redisClientPromise = createRedisClient();
   }
-  return redisClient;
+  return redisClientPromise;
 }
 
 // Cache helper functions
 export async function getCached<T>(key: string): Promise<T | null> {
   try {
-    const client = getRedisClient();
+    const client = await getRedisClient();
     const cached = await client.get(key);
     if (!cached) return null;
     
@@ -126,7 +126,7 @@ export async function getCached<T>(key: string): Promise<T | null> {
 
 export async function setCached<T>(key: string, value: T, ttl: number = 300): Promise<void> {
   try {
-    const client = getRedisClient();
+    const client = await getRedisClient();
     await client.set(key, JSON.stringify(value), ttl);
   } catch (error) {
     console.error('[Cache] Error setting cached data:', error);
@@ -135,7 +135,7 @@ export async function setCached<T>(key: string, value: T, ttl: number = 300): Pr
 
 export async function deleteCached(key: string): Promise<void> {
   try {
-    const client = getRedisClient();
+    const client = await getRedisClient();
     await client.del(key);
   } catch (error) {
     console.error('[Cache] Error deleting cached data:', error);

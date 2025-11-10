@@ -1,0 +1,174 @@
+
+> nextjs-app@0.1.0 lint
+> eslint
+
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\ai-automations\[id]\monitor\route.ts
+   76:50  warning  'summaryStatsError' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  139:60  error    Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  139:68  error    Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  237:44  warning  'eligibleError' is assigned a value but never used      @typescript-eslint/no-unused-vars
+  287:52  error    Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+  287:60  error    Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\ai-automations\trigger\route.ts
+  365:68  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\auth\facebook\callback\route.ts
+  75:40  warning  'fetchError' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\auth\facebook\route.ts
+  19:27  warning  '_request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\contact-timing\compute\route.ts
+  290:3  warning  'config' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\conversations\sync-all\route.ts
+  10:28  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\conversations\sync-stream\route.ts
+  68:13  error  'skippedCount' is never reassigned. Use 'const' instead  prefer-const
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\cron\ai-automations\route.ts
+  342:68  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\cron\send-scheduled\route.ts
+  193:70  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  200:70  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  206:71  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  227:62  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  242:72  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\diagnostics-facebook\route.ts
+  45:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\diagnostics\database\route.ts
+   18:24  error    Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   53:21  warning  'connectionTest' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  216:21  warning  'rlsCheck' is assigned a value but never used        @typescript-eslint/no-unused-vars
+  224:14  warning  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+  232:77  error    Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\facebook\disconnect\route.ts
+  9:28  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\facebook\pages\route.ts
+  11:27  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\facebook\refresh-token\route.ts
+  15:28  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+  76:14  warning  'error' is defined but never used    @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\[id]\resend\route.ts
+  196:9  warning  'supabase' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\check-all\route.ts
+  9:27  warning  '_request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\check-batches\route.ts
+  113:38  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  113:59  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  113:64  warning  'message' is defined but never used       @typescript-eslint/no-unused-vars
+  113:73  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  113:79  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\check-latest\route.ts
+   9:27  warning  '_request' is defined but never used      @typescript-eslint/no-unused-vars
+  73:41  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  73:55  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  73:70  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\check-scheduled\route.ts
+  9:27  warning  '_request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\create-test-scheduled\route.ts
+  11:28  warning  'request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\debug-send\route.ts
+  8:27  warning  '_request' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\diagnose\route.ts
+  131:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  131:47  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  131:67  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  131:98  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\full-test\route.ts
+    9:27  warning  '_request' is defined but never used      @typescript-eslint/no-unused-vars
+  172:24  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  264:45  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  265:45  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\messages\test-facebook\route.ts
+   79:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:49  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\pipeline\quota-status\route.ts
+  101:12  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\test-auth\route.ts
+   5:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  47:49  error  A `require()` style import is forbidden   @typescript-eslint/no-require-imports
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\test-conversation-sync\route.ts
+  33:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  65:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\webhook\reply-detector\route.ts
+  91:20  warning  'aiTagError' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\api\webhook\route.ts
+    4:10  warning  'withPooledClient' is defined but never used  @typescript-eslint/no-unused-vars
+  229:14  warning  'aiTagError' is defined but never used        @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\dashboard\best-time-to-contact\page.tsx
+   166:6   warning  React Hook useEffect has missing dependencies: 'fetchConversationStats' and 'fetchRecommendations'. Either include them or remove the dependency array                                                                                                                                   react-hooks/exhaustive-deps
+   214:6   warning  React Hook useEffect has missing dependencies: 'computing' and 'handleComputeAll'. Either include them or remove the dependency array                                                                                                                                                    react-hooks/exhaustive-deps
+   693:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   848:31  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1278:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\dashboard\conversations\page.tsx
+   96:10  warning  'quickFilterTag' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   96:26  warning  'setQuickFilterTag' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  113:17  warning  'tags' is assigned a value but never used               @typescript-eslint/no-unused-vars
+  129:69  warning  'refetch' is assigned a value but never used            @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\dashboard\pipeline\page.tsx
+  13:3   warning  'MessageSquare' is defined but never used  @typescript-eslint/no-unused-vars
+  14:3   warning  'Calendar' is defined but never used       @typescript-eslint/no-unused-vars
+  15:3   warning  'ChevronRight' is defined but never used   @typescript-eslint/no-unused-vars
+  30:79  warning  'DialogTrigger' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\app\dashboard\scheduled\page.tsx
+  3:10  warning  'useEffect' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\components\facebook\facebook-connection-card.tsx
+   20:3   warning  'Eye' is defined but never used                                                                                                                                                                                                                                                          @typescript-eslint/no-unused-vars
+   21:3   warning  'EyeOff' is defined but never used                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+  228:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\components\messages\FailedRecipientsDialog.tsx
+  22:3   warning  'X' is defined but never used                 @typescript-eslint/no-unused-vars
+  73:28  warning  'refetch' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\lib\contact-timing\timezone.ts
+  16:7  warning  'COMMON_TIMEZONES' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\lib\facebook\batch-api.ts
+  61:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  62:47  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\lib\facebook\token-refresh.ts
+  140:55  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\lib\pipeline\analyze.ts
+  159:3  warning  'requestOrigin' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\bigcl\Downloads\bulk\kickerpro\src\lib\redis\client.ts
+  70:21  error    A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+  91:14  warning  'error' is defined but never used        @typescript-eslint/no-unused-vars
+
+✖ 86 problems (39 errors, 47 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+

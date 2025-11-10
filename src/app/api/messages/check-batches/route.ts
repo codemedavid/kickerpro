@@ -110,7 +110,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function diagnoseBatchIssue(batches: any[] | null, error: any, message: any): any {
+function diagnoseBatchIssue(
+  batches: Array<Record<string, unknown>> | null, 
+  error: { message: string } | null, 
+  _message: Record<string, unknown>
+): Record<string, unknown> {
   if (error) {
     return {
       issue: 'SUPABASE_ERROR',
@@ -157,6 +161,9 @@ function diagnoseBatchIssue(batches: any[] | null, error: any, message: any): an
     fix: 'Check batch details manually'
   };
 }
+
+
+
 
 
 

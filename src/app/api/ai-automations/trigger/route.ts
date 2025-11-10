@@ -362,7 +362,7 @@ export async function POST(request: NextRequest) {
                 
                 if (fbResponse.ok && fbData.data && fbData.data[0]?.messages?.data) {
                   const recentMessages = fbData.data[0].messages.data;
-                  const userMessages = recentMessages.filter((msg: any) => msg.from?.id === conv.sender_id);
+                  const userMessages = recentMessages.filter((msg: { from?: { id?: string }; created_time?: string }) => msg.from?.id === conv.sender_id);
                   
                   if (userMessages.length > 0) {
                     const lastUserMessage = userMessages[0];

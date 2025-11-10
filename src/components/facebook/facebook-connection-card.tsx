@@ -16,9 +16,7 @@ import {
   AlertCircle, 
   CheckCircle, 
   Loader2,
-  XCircle,
-  Eye,
-  EyeOff
+  XCircle
 } from 'lucide-react';
 import { ConnectFacebookButton } from './connect-facebook-button';
 

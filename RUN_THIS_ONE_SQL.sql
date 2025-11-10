@@ -69,3 +69,6 @@ SELECT '✅ All AI Automation setup complete! Test at /api/ai-automations/trigge
 
 
 
+
+
+

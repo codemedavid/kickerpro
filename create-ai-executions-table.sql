@@ -52,3 +52,6 @@ SELECT '✅ AI Automation Executions table created!' as result;
 
 
 
+
+
+

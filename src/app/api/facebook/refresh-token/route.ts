@@ -12,7 +12,7 @@ import {
   debugToken,
 } from '@/lib/facebook/token-manager';
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     const supabase = await createClient();
     
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { 
           error: 'Failed to verify token. Please reconnect your Facebook account.',

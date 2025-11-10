@@ -73,7 +73,7 @@ export async function GET(
               .limit(100);
 
             // Get monitor summary (combined stats)
-            const { data: monitorSummary, error: summaryStatsError } = await supabase
+            const { data: monitorSummary } = await supabase
               .from('automation_monitor_summary')
               .select('*')
               .eq('rule_id', ruleId)
@@ -136,10 +136,10 @@ export async function GET(
                 // Stopped
                 stopped: monitorSummary?.stopped_count || 0,
                 // Stage breakdown
-                byStage: (stageSummary || []).reduce((acc: any, s: any) => {
+                byStage: (stageSummary || []).reduce((acc: Record<string, number>, s: { stage: string; count: number }) => {
                   acc[s.stage] = s.count;
                   return acc;
-                }, {}),
+                }, {} as Record<string, number>),
                 // Detailed counts from summary
                 queued: monitorSummary?.queued_count || 0,
                 generating: monitorSummary?.generating_count || 0,
@@ -261,6 +261,17 @@ export async function POST(
       });
     }
 
+    if (contactsError) {
+      return NextResponse.json({
+        error: 'Failed to fetch contacts',
+        details: contactsError.message
+      }, { status: 500 });
+    }
+
+    if (eligibleError && eligibleError.code !== 'PGRST116') {
+      console.error('[Monitor] Error fetching eligible contacts:', eligibleError);
+    }
+
     // Get stage summary
     const { data: stageSummary } = await supabase
       .rpc('get_automation_stage_summary', { p_rule_id: ruleId });
@@ -284,10 +295,10 @@ export async function POST(
         // Stopped
         stopped: monitorSummary?.stopped_count || 0,
         // Stage breakdown
-        byStage: (stageSummary || []).reduce((acc: any, s: any) => {
+        byStage: (stageSummary || []).reduce((acc: Record<string, number>, s: { stage: string; count: number }) => {
           acc[s.stage] = s.count;
           return acc;
-        }, {}),
+        }, {} as Record<string, number>),
         // Detailed counts from summary
         queued: monitorSummary?.queued_count || 0,
         generating: monitorSummary?.generating_count || 0,

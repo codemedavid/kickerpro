@@ -7,7 +7,7 @@ import { batchFetchConversations } from '@/lib/facebook/batch-api';
 export const dynamic = 'force-dynamic';
 
 // Sync all pages using Facebook Batch API for maximum speed
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const userId = cookieStore.get('fb-auth-user')?.value;
@@ -70,8 +70,9 @@ export async function POST(request: NextRequest) {
           }> = [];
           
           for (const conv of conversations) {
-            const participants = conv.participants?.data || [];
-            const lastTime = conv.updated_time || new Date().toISOString();
+            const convData = conv as { participants?: { data?: Array<{ id: string; name?: string }> }; updated_time?: string };
+            const participants = convData.participants?.data || [];
+            const lastTime = convData.updated_time || new Date().toISOString();
 
             for (const participant of participants) {
               if (participant.id === page.facebook_page_id) continue;

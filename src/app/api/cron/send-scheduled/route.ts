@@ -190,20 +190,20 @@ export async function GET(request: NextRequest) {
 
                 // Apply tag filters
                 if (msg.include_tag_ids && msg.include_tag_ids.length > 0) {
-                  filteredRecipients = filteredRecipients.filter((c: any) => {
+                  filteredRecipients = filteredRecipients.filter((c: { conversation_tags?: string[] }) => {
                     const tags = c.conversation_tags || [];
                     return msg.include_tag_ids.every((tagId: string) => tags.includes(tagId));
                   });
                 }
 
                 if (msg.exclude_tag_ids && msg.exclude_tag_ids.length > 0) {
-                  filteredRecipients = filteredRecipients.filter((c: any) => {
+                  filteredRecipients = filteredRecipients.filter((c: { conversation_tags?: string[] }) => {
                     const tags = c.conversation_tags || [];
                     return !msg.exclude_tag_ids.some((tagId: string) => tags.includes(tagId));
                   });
                 }
 
-                const selectedRecipients = filteredRecipients.map((c: any) => c.sender_id);
+                const selectedRecipients = filteredRecipients.map((c: { sender_id: string }) => c.sender_id);
                 
                 console.log(`[Cron Send Scheduled] After filters: ${selectedRecipients.length} recipients`);
 
@@ -224,7 +224,7 @@ export async function GET(request: NextRequest) {
 
                     // Group messages by sender_id to create conversation contexts
                     const conversationContexts: ConversationContext[] = [];
-                    const messagesBySender = new Map<string, any[]>();
+                    const messagesBySender = new Map<string, Array<{ sender_id: string; [key: string]: unknown }>>();
                     
                     if (messageHistories) {
                       for (const message of messageHistories) {
@@ -239,15 +239,15 @@ export async function GET(request: NextRequest) {
                     // Create context for each recipient
                     for (const senderId of selectedRecipients) {
                       const messages = messagesBySender.get(senderId) || [];
-                      const conversation = filteredRecipients.find((c: any) => c.sender_id === senderId);
+                      const conversation = filteredRecipients.find((c: { sender_id: string; sender_name?: string }) => c.sender_id === senderId);
                       
                       conversationContexts.push({
                         conversationId: senderId,
                         participantName: conversation?.sender_name || 'Customer',
                         messages: messages.map(m => ({
-                          from: m.is_from_page ? 'page' : conversation?.sender_name || 'Customer',
-                          message: m.message_text || '',
-                          timestamp: m.timestamp || new Date().toISOString()
+                          from: String(m.is_from_page ? 'page' : conversation?.sender_name || 'Customer'),
+                          message: String(m.message_text || ''),
+                          timestamp: String(m.timestamp || new Date().toISOString())
                         }))
                       });
                     }

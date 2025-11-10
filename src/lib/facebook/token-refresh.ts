@@ -137,7 +137,9 @@ export async function checkTokenExpiration(token: string): Promise<{
  * Refresh all page tokens that are expiring soon
  * Should be called by a cron job
  */
-export async function refreshExpiringTokens(supabase: any): Promise<{
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+export async function refreshExpiringTokens(supabase: SupabaseClient): Promise<{
   checked: number;
   refreshed: number;
   failed: number;

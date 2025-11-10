@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getUserPages, debugToken } from '@/lib/facebook/token-manager';
 import { cookies } from 'next/headers';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // Use cookie-based authentication (matches app's auth pattern)
     const cookieStore = await cookies();

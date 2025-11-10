@@ -19,7 +19,6 @@ import {
   RefreshCw, 
   AlertCircle, 
   User, 
-  X,
   CheckCircle2,
   XCircle,
   Clock,
@@ -70,7 +69,7 @@ export function FailedRecipientsDialog({
   const [selectedErrorTypes, setSelectedErrorTypes] = useState<string[]>([]);
 
   // Fetch failed recipients
-  const { data, isLoading, refetch } = useQuery<FailedRecipientsData>({
+  const { data, isLoading } = useQuery<FailedRecipientsData>({
     queryKey: ['failed-recipients', messageId],
     queryFn: async () => {
       const response = await fetch(`/api/messages/${messageId}/failed-recipients`);

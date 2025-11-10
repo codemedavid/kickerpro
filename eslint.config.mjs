@@ -12,6 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Exclude test and script files
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "__tests__/**",
+    "scripts/**",
+    "test-*.js",
+    "backtest-*.js",
+    "generate-*.js",
+    "jest.config.js",
+    "lint-full-report.txt",
   ]),
 ]);
 

@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     // Test Facebook API call
     const url = `https://graph.facebook.com/v18.0/me/messages`;
 
-    const postData: any = {
+    const postData: Record<string, unknown> = {
       recipient: { id: testRecipient },
       message: { text: message.content },
       access_token: page.access_token
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function getFacebookErrorRecommendations(error: any): string[] {
+function getFacebookErrorRecommendations(error: { code?: number; error_subcode?: number; message?: string } | null): string[] {
   if (!error) return [];
 
   const recommendations: string[] = [];
@@ -205,6 +205,9 @@ function getFacebookErrorRecommendations(error: any): string[] {
 
   return recommendations;
 }
+
+
+
 
 
 

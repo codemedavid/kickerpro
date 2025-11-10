@@ -25,7 +25,7 @@ export async function GET() {
     }
 
     // Test the access token
-    const tokenTest = { valid: false, error: null, pages: 0 };
+    const tokenTest: { valid: boolean; error: string | null; pages: number; hasToken?: boolean } = { valid: false, error: null, pages: 0, hasToken: !!dbUser?.facebook_access_token };
     const tokenToTest = fbAccessTokenCookie || dbUser?.facebook_access_token;
     
     if (tokenToTest) {
@@ -42,8 +42,8 @@ export async function GET() {
           tokenTest.valid = true;
           tokenTest.pages = data.data?.length || 0;
         }
-      } catch (e: any) {
-        tokenTest.error = e.message;
+      } catch (e) {
+        tokenTest.error = e instanceof Error ? e.message : 'Unknown error';
       }
     }
 

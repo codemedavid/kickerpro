@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
 async function updateSegmentPriors(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  config: AlgorithmConfig
+  _config: AlgorithmConfig
 ) {
   try {
     // Aggregate bins across all contacts for global priors

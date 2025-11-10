@@ -190,7 +190,7 @@ export async function POST(
   }
 }
 
-async function processRetryBatchesAsync(messageId: string, totalBatches: number, request: NextRequest) {
+async function processRetryBatchesAsync(messageId: string, totalBatches: number) {
   console.log('[Resend API] 🚀 Starting background retry batch processing for', totalBatches, 'batches');
   
   const supabase = await createClient();

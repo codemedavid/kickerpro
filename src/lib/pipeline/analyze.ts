@@ -156,7 +156,7 @@ interface AnalysisResult {
 export async function analyzePipelineOpportunities(
   opportunityIds: string[],
   userId: string,
-  requestOrigin?: string
+  _requestOrigin?: string
 ): Promise<{
   success: boolean;
   analyzed: number;

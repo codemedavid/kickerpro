@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
-// Batch size for parallel processing
-const PARALLEL_BATCH_SIZE = 10;
+// Facebook API settings
 const FACEBOOK_API_LIMIT = 100;
 
 export async function POST(request: NextRequest) {
@@ -53,10 +52,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const syncedConversationIds = new Set<string>();
-    let insertedCount = 0;
-    let updatedCount = 0;
-    let skippedCount = 0;
+      const syncedConversationIds = new Set<string>();
+      let insertedCount = 0;
+      let updatedCount = 0;
+      const skippedCount = 0;
     let totalConversations = 0;
     let totalEventsCreated = 0;
     
@@ -100,7 +99,7 @@ export async function POST(request: NextRequest) {
       }> = [];
       
       const conversationToMessages = new Map<string, {
-        messages: any[];
+        messages: Array<{ message?: string; created_time?: string; from?: { id?: string } }>;
         lastTime: string;
         participantId: string;
       }>();
@@ -162,7 +161,7 @@ export async function POST(request: NextRequest) {
             is_outbound: boolean;
             is_success: boolean;
             success_weight: number;
-            metadata: any;
+            metadata: Record<string, unknown>;
           }> = [];
 
           for (const row of upsertedRows) {
@@ -203,7 +202,7 @@ export async function POST(request: NextRequest) {
                     success_weight: isFromContact ? 1.0 : 0.0,
                     metadata: {
                       source: 'initial_sync',
-                      message_id: msg.id,
+                      message_id: (msg as { id?: string }).id,
                       synced_at: new Date().toISOString()
                     }
                   });

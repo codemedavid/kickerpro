@@ -427,3 +427,6 @@ WHERE recommended_windows IS NOT NULL;
 **Your recommendations are now more precise and actionable!** 🎯
 
 
+
+
+

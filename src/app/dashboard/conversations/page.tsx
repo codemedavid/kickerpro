@@ -93,7 +93,6 @@ export default function ConversationsPage() {
   const [syncBaselineCount, setSyncBaselineCount] = useState(0);
   const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
-  const [quickFilterTag, setQuickFilterTag] = useState<string | null>(null);
   const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
 
   const supabase = useMemo(() => createSupabaseClient(), []);
@@ -110,7 +109,7 @@ export default function ConversationsPage() {
   });
 
   // Fetch user's tags
-  const { data: tags = [] } = useQuery<{
+  useQuery<{
     id: string;
     name: string;
     color: string;
@@ -126,7 +125,7 @@ export default function ConversationsPage() {
   });
 
   // Fetch conversations with server-side pagination
-  const { data: conversationsData, isLoading: conversationsLoading, refetch } = useQuery<{
+  const { data: conversationsData, isLoading: conversationsLoading } = useQuery<{
     conversations: Conversation[];
     pagination: {
       page: number;

@@ -16,7 +16,7 @@ import {
 /**
  * GET handler - OAuth redirect flow
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const supabase = await createClient();
     

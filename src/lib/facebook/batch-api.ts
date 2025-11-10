@@ -58,8 +58,8 @@ export async function executeBatchRequest(
 export async function batchFetchConversations(
   pages: Array<{ facebookPageId: string; accessToken: string; lastSyncTime?: string }>,
   limit: number = 100
-): Promise<Map<string, any[]>> {
-  const conversationsByPage = new Map<string, any[]>();
+): Promise<Map<string, Array<Record<string, unknown>>>> {
+  const conversationsByPage = new Map<string, Array<Record<string, unknown>>>();
 
   // Split into batches of 50 (Facebook limit)
   const batches: typeof pages[] = [];

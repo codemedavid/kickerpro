@@ -15,7 +15,11 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
  */
 export async function GET() {
   try {
-    const diagnostics: any = {
+    const diagnostics: {
+      timestamp: string;
+      checks: Record<string, unknown>;
+      summary?: Record<string, unknown>;
+    } = {
       timestamp: new Date().toISOString(),
       checks: {}
     };
@@ -50,7 +54,7 @@ export async function GET() {
 
     // Test 1: Basic connection
     try {
-      const { data: connectionTest, error: connError } = await supabase
+      const { error: connError } = await supabase
         .from('messages')
         .select('count')
         .limit(1);
@@ -213,7 +217,7 @@ export async function GET() {
 
     // Test 7: Check RLS status
     try {
-      const { data: rlsCheck } = await supabase.rpc('pg_catalog.pg_tables')
+      await supabase.rpc('pg_catalog.pg_tables')
         .select('*')
         .eq('tablename', 'messages');
 
@@ -221,7 +225,7 @@ export async function GET() {
         status: '✅ Checked',
         note: 'Service role should bypass RLS automatically'
       };
-    } catch (error) {
+    } catch {
       diagnostics.checks.rls = {
         status: '⚠️ Could not check',
         note: 'RLS check requires specific permissions'
@@ -229,7 +233,7 @@ export async function GET() {
     }
 
     // Summary
-    const allChecksPassed = Object.values(diagnostics.checks).every((check: any) => 
+    const allChecksPassed = Object.values(diagnostics.checks).every((check: { status?: string }) => 
       check.status?.includes('✅')
     );
 

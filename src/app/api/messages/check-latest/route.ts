@@ -70,7 +70,10 @@ export async function GET(_request: NextRequest) {
   }
 }
 
-function diagnoseLatestMessage(message: any, batches: any[] | null): any {
+function diagnoseLatestMessage(
+  message: { id: string; status: string; [key: string]: unknown }, 
+  batches: Array<Record<string, unknown>> | null
+): Record<string, unknown> {
   const issues = [];
   const actions = [];
 

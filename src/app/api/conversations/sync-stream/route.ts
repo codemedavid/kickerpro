@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: any) => {
+      const send = (data: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         const syncedConversationIds = new Set<string>();
         let insertedCount = 0;
         let updatedCount = 0;
-        let skippedCount = 0;
+        const skippedCount = 0;
         let totalConversations = 0;
         let totalEventsCreated = 0;
         let batchNumber = 0;
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
           }> = [];
           
           const conversationToMessages = new Map<string, {
-            messages: any[];
+            messages: Array<{ message?: string; created_time?: string; from?: { id?: string } }>;
             lastTime: string;
             participantId: string;
           }>();
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
                 is_outbound: boolean;
                 is_success: boolean;
                 success_weight: number;
-                metadata: any;
+                metadata: Record<string, unknown>;
               }> = [];
 
               for (const row of upsertedRows) {
@@ -217,11 +217,11 @@ export async function POST(request: NextRequest) {
                         is_success: isFromContact,
                         success_weight: isFromContact ? 1.0 : 0.0,
                         metadata: {
-                          source: 'initial_sync',
-                          message_id: msg.id,
-                          synced_at: new Date().toISOString()
-                        }
-                      });
+                        source: 'initial_sync',
+                        message_id: (msg as { id?: string }).id,
+                        synced_at: new Date().toISOString()
+                      }
+                    });
                     }
                     
                     // If no messages, create one default event

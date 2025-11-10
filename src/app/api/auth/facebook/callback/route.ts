@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     const expiresAt = calculateTokenExpiry(longLivedToken.expires_in);
 
     // Step 5: Update or create user in database
-    const { data: existingUser, error: fetchError } = await supabase
+    const { data: existingUser } = await supabase
       .from('users')
       .select('id')
       .eq('id', authUser.id)

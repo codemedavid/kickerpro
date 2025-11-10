@@ -12,7 +12,9 @@ export interface TimezoneInference {
 
 /**
  * Common timezone patterns by region
+ * @private - Reserved for future use
  */
+/*
 const COMMON_TIMEZONES: Record<string, string> = {
   // US
   'Eastern': 'America/New_York',
@@ -36,6 +38,7 @@ const COMMON_TIMEZONES: Record<string, string> = {
   'ACST': 'Australia/Adelaide',
   'AWST': 'Australia/Perth',
 };
+*/
 
 /**
  * Infer timezone from activity pattern
