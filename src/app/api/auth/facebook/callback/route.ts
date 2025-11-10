@@ -121,10 +121,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 6: Fetch and store user's Facebook Pages
+    let pagesCount = 0;
     try {
       const pagesData = await getUserPages(longLivedToken.access_token);
       
       if (pagesData.data && pagesData.data.length > 0) {
+        pagesCount = pagesData.data.length;
+        
         // Delete old pages for this user (they'll be re-added)
         await supabase
           .from('facebook_pages')
@@ -160,8 +163,7 @@ export async function GET(request: NextRequest) {
     // Success! Redirect to dashboard with success message
     return NextResponse.redirect(
       new URL(
-        '/dashboard?success=facebook_connected&pages=' + 
-        (pagesData?.data?.length || 0),
+        '/dashboard?success=facebook_connected&pages=' + pagesCount,
         request.url
       )
     );
