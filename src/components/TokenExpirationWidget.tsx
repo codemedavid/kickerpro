@@ -85,6 +85,7 @@ export function TokenExpirationWidget() {
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
     let cachedExpiresAt: number | null = null;
+    let hasAutoVerified = false; // Track if we've done the initial auto-verification
 
     const fetchExpirationTime = async () => {
       try {
@@ -141,6 +142,42 @@ export function TokenExpirationWidget() {
             expiresAt: cachedExpiresAt,
             userName: data.user?.name
           });
+          
+          // Auto-verify with Facebook on initial load to ensure accuracy
+          if (!hasAutoVerified) {
+            hasAutoVerified = true;
+            console.log('[TokenWidget] 🔍 Auto-verifying token expiration with Facebook...');
+            
+            // Delay slightly to let UI render first
+            setTimeout(async () => {
+              try {
+                const verifyResponse = await fetch('/api/auth/verify-token');
+                if (verifyResponse.ok) {
+                  const verifyData = await verifyResponse.json();
+                  
+                  if (verifyData.hasMismatch && verifyData.expiresAt) {
+                    console.log('[TokenWidget] ⚠️ Auto-verification found mismatch - correcting...');
+                    cachedExpiresAt = verifyData.expiresAt;
+                    
+                    setTokenData({
+                      expiresAt: verifyData.expiresAt,
+                      userName: data.user?.name
+                    });
+                    
+                    // Update the cookie with correct expiration
+                    document.cookie = `fb-token-expires=${verifyData.expiresAt}; path=/; max-age=${verifyData.expiresIn}`;
+                    lastKnownExpiresAt.current = verifyData.expiresAt;
+                    
+                    console.log('[TokenWidget] ✅ Auto-corrected expiration to:', new Date(verifyData.expiresAt).toLocaleString());
+                  } else {
+                    console.log('[TokenWidget] ✅ Auto-verification passed - countdown is accurate');
+                  }
+                }
+              } catch (error) {
+                console.warn('[TokenWidget] Auto-verification failed:', error);
+              }
+            }, 1000);
+          }
         } else {
           cachedExpiresAt = null;
           setTokenData(null);
