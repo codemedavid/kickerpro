@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { isValidTimezone } from '@/lib/contact-timing/timezone';
 
 export async function POST(request: NextRequest) {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     
     // Get authenticated user from cookie
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     console.log('[Bulk Update Timezone API] User ID:', userId ? 'Found' : 'Missing');
 

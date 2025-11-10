@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { analyzePipelineOpportunities } from '@/lib/pipeline/analyze';
 import { analyzeWithKeywordMatching } from '@/lib/pipeline/analyze-test-mode';
 
@@ -11,7 +12,7 @@ import { analyzeWithKeywordMatching } from '@/lib/pipeline/analyze-test-mode';
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

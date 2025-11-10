@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     const accessToken = cookieStore.get('fb-access-token')?.value;
+    const primaryAuthCookie = cookieStore.get('fb-user-id')?.value;
+    const legacyAuthCookie = cookieStore.get('fb-auth-user')?.value;
 
     const supabase = await createClient();
 
@@ -34,9 +37,11 @@ export async function GET() {
         hasSelectedRecipientsColumn: sampleMessage && 'selected_recipients' in sampleMessage ? '✅ Yes' : '⚠️ No (needs migration)',
       },
       cookies: {
-        'fb-auth-user': cookieStore.get('fb-auth-user')?.value ? 'Present' : 'Missing',
+        'fb-user-id': primaryAuthCookie ? 'Present' : 'Missing',
+        'fb-auth-user (legacy)': legacyAuthCookie ? 'Present' : 'Missing',
         'fb-access-token': cookieStore.get('fb-access-token')?.value ? 'Present' : 'Missing',
       },
+      effectiveUserId: userId,
       recommendations: [] as string[]
     };
 

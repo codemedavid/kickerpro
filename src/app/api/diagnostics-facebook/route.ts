@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
@@ -10,7 +11,7 @@ export async function GET() {
     // Get all cookies
     const allCookies = cookieStore.getAll();
     const fbUserIdCookie = cookieStore.get('fb-user-id')?.value;
-    const fbAuthUserCookie = cookieStore.get('fb-auth-user')?.value;
+    const fbAuthUserCookie = getAuthenticatedUserId(cookieStore);
     const fbAccessTokenCookie = cookieStore.get('fb-access-token')?.value;
 
     // Get user from database

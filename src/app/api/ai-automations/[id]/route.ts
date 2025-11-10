@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 
 /**
@@ -12,7 +13,7 @@ export async function GET(
 ) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     const { id } = await params;
 
     if (!userId) {
@@ -50,7 +51,7 @@ export async function PATCH(
 ) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     const { id } = await params;
 
     if (!userId) {
@@ -93,7 +94,7 @@ export async function DELETE(
 ) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     const { id } = await params;
 
     if (!userId) {
