@@ -628,7 +628,7 @@ export default function ConversationsPage() {
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="w-4 h-4 text-blue-600" />
                 <span className="text-blue-900 dark:text-blue-100">
-                  Data last refreshed: {isAutoFetchEnabled ? 'Auto-updating...' : 'Just now'}
+                  Data last refreshed: Just now
                 </span>
               </div>
               {selectedPageId !== 'all' && (
