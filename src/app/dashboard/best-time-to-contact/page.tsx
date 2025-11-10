@@ -143,6 +143,10 @@ export default function BestTimeToContactPage() {
   const [bulkTimezoneDialogOpen, setBulkTimezoneDialogOpen] = useState(false);
   const [bulkTimezone, setBulkTimezone] = useState<string>('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [conversationStats, setConversationStats] = useState<{
+    totalConversations: number;
+    totalRecommendations: number;
+  }>({ totalConversations: 0, totalRecommendations: 0 });
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -157,25 +161,56 @@ export default function BestTimeToContactPage() {
 
   useEffect(() => {
     fetchRecommendations();
+    fetchConversationStats();
   }, [sortBy, minConfidence, pagination.offset, selectedPageId]);
+
+  const fetchConversationStats = async () => {
+    try {
+      const params = new URLSearchParams({ limit: '1' });
+      if (selectedPageId !== 'all') {
+        params.set('facebookPageId', selectedPageId);
+      }
+      
+      const convResponse = await fetch(`/api/conversations?${params}`);
+      const convData = await convResponse.json();
+      
+      setConversationStats({
+        totalConversations: convData.pagination?.total || 0,
+        totalRecommendations: pagination.total
+      });
+    } catch (error) {
+      console.error('Error fetching conversation stats:', error);
+    }
+  };
 
   // Auto-compute if no recommendations exist
   useEffect(() => {
     const checkAndAutoCompute = async () => {
       if (!loading && recommendations.length === 0 && pagination.total === 0 && !computing) {
         // Check if there are conversations to compute
-        const checkResponse = await fetch('/api/conversations?limit=1');
+        const params = new URLSearchParams();
+        if (selectedPageId !== 'all') {
+          params.set('facebookPageId', selectedPageId);
+        }
+        params.set('limit', '1');
+        
+        const checkResponse = await fetch(`/api/conversations?${params}`);
         const checkData = await checkResponse.json();
         
         if (checkData.conversations && checkData.conversations.length > 0) {
           toast.info('No contact timing data found. Computing now...');
           await handleComputeAll();
+        } else if (selectedPageId !== 'all') {
+          // No conversations for this page
+          toast.info('No conversations found for this page. Try syncing from Facebook first.', {
+            duration: 5000
+          });
         }
       }
     };
 
     checkAndAutoCompute();
-  }, [loading, recommendations.length, pagination.total]);
+  }, [loading, recommendations.length, pagination.total, selectedPageId]);
 
   const fetchRecommendations = async () => {
     try {
@@ -460,6 +495,32 @@ export default function BestTimeToContactPage() {
         </Button>
       </div>
 
+      {/* Warning Banner if conversations exist but no recommendations */}
+      {conversationStats.totalConversations > 0 && pagination.total === 0 && !loading && (
+        <Card className="bg-yellow-50 border-yellow-200">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 bg-yellow-100 rounded-full p-2">
+                <Clock className="h-5 w-5 text-yellow-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-yellow-900 mb-1">
+                  Action Required: Compute Contact Times
+                </h3>
+                <p className="text-sm text-yellow-800 mb-3">
+                  You have {conversationStats.totalConversations} conversation(s) that haven&apos;t been processed yet. 
+                  Click &quot;Compute All&quot; to generate timing recommendations.
+                </p>
+                <Button onClick={handleComputeAll} disabled={computing} size="sm">
+                  <RefreshCw className={`mr-2 h-4 w-4 ${computing ? 'animate-spin' : ''}`} />
+                  {computing ? 'Computing...' : 'Compute Now'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -468,6 +529,11 @@ export default function BestTimeToContactPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{pagination.total}</div>
+            {conversationStats.totalConversations > pagination.total && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {conversationStats.totalConversations - pagination.total} not yet computed
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -649,12 +715,24 @@ export default function BestTimeToContactPage() {
               <Clock className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No Recommendations Yet</h3>
               <p className="text-muted-foreground mb-4">
-                Click &quot;Compute All&quot; to generate best contact time recommendations
+                {selectedPageId !== 'all' 
+                  ? 'No timing data found for this page. Make sure you have synced conversations and clicked "Compute All".'
+                  : 'Click "Compute All" to generate best contact time recommendations'}
               </p>
-              <Button onClick={handleComputeAll} disabled={computing}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Compute Now
-              </Button>
+              <div className="flex flex-col items-center gap-3">
+                <Button onClick={handleComputeAll} disabled={computing}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Compute Now
+                </Button>
+                {selectedPageId !== 'all' && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => router.push('/dashboard/conversations')}
+                  >
+                    Go to Conversations to Sync
+                  </Button>
+                )}
+              </div>
             </div>
           ) : (
             <>
