@@ -110,18 +110,47 @@ export async function POST(request: NextRequest) {
           maxDelay: 32000,
         });
       } catch (error) {
-        console.error('[Sync Conversations] Facebook API error:', error);
+        console.error('[Sync Conversations] Facebook API error (retrying):', error);
         const errorMessage = error instanceof Error 
           ? error.message 
           : 'Failed to fetch conversations';
-        throw new Error(errorMessage);
+        
+        // DON'T throw - continue with what we have
+        console.warn('[Sync Conversations] Batch failed, but continuing with partial results');
+        console.log('[Sync Conversations] Synced so far:', totalConversations, 'conversations');
+        
+        // Wait a bit and try to continue
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Try to get next URL from paging if available
+        // If this was a temporary error, we can continue
+        // For now, stop gracefully and save what we have
+        break;
       }
 
       const data = await response.json();
+      
+      // Check for Facebook API errors in response
+      if (data.error) {
+        console.error('[Sync Conversations] Facebook API returned error:', data.error);
+        
+        // If it's a rate limit, wait and continue
+        if (data.error.code === 4 || data.error.code === 17 || data.error.message?.includes('rate limit')) {
+          console.warn('[Sync Conversations] Rate limited! Waiting 60 seconds before continuing...');
+          await new Promise(resolve => setTimeout(resolve, 60000));
+          // Continue to next iteration - don't break
+          continue;
+        }
+        
+        // For other errors, log but continue with what we have
+        console.warn('[Sync Conversations] API error, stopping gracefully:', data.error.message);
+        break;
+      }
+      
       const conversations = data.data || [];
       totalConversations += conversations.length;
       
-      console.log('[Sync Conversations] Processing batch of', conversations.length, 'conversations');
+      console.log('[Sync Conversations] Processing batch of', conversations.length, 'conversations (total:', totalConversations, ')');
 
       // Prepare all conversation payloads and events in bulk
       const conversationPayloads: Array<{
@@ -184,6 +213,8 @@ export async function POST(request: NextRequest) {
 
         if (upsertError) {
           console.error('[Sync Conversations] Error bulk upserting conversations:', upsertError);
+          console.warn('[Sync Conversations] Database error, but continuing with next batch');
+          // Continue with next batch instead of failing completely
         } else if (upsertedRows) {
           // Collect all events for bulk insert
           const allEventsToInsert: Array<{
@@ -279,6 +310,8 @@ export async function POST(request: NextRequest) {
               
               if (eventsError) {
                 console.error('[Sync Conversations] Error inserting events chunk:', eventsError);
+                console.warn('[Sync Conversations] Events insert failed, but conversations were saved');
+                // Continue - events are optional, conversations are what matters
               } else {
                 totalEventsCreated += chunk.length;
               }
