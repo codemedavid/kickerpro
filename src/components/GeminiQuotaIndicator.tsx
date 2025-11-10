@@ -32,7 +32,7 @@ export function GeminiQuotaIndicator() {
 
   const getStatusColor = () => {
     if (quota.all_exhausted) return 'destructive';
-    if (quota.available_keys < 3) return 'warning';
+    if (quota.available_keys < 3) return 'outline';
     return 'default';
   };
 
