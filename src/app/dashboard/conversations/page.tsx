@@ -236,29 +236,38 @@ export default function ConversationsPage() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let finalResult = { inserted: 0, updated: 0 };
+      let buffer = '';
 
       if (reader) {
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
+            if (done) {
+              buffer += decoder.decode();
+            } else if (value) {
+              buffer += decoder.decode(value, { stream: true });
+            }
 
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = JSON.parse(line.slice(6));
-                
-                // Update real-time stats
+            let separatorIndex: number;
+            while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+              const rawEvent = buffer.slice(0, separatorIndex).trim();
+              buffer = buffer.slice(separatorIndex + 2);
+
+              if (!rawEvent.startsWith('data:')) continue;
+
+              const payload = rawEvent.replace(/^data:\s*/, '');
+
+              try {
+                const data = JSON.parse(payload);
+
                 if (data.inserted !== undefined) {
-                  setRealtimeStats({ 
-                    inserts: data.inserted, 
-                    updates: data.updated 
+                  setRealtimeStats({
+                    inserts: data.inserted ?? 0,
+                    updates: data.updated ?? 0
                   });
                 }
 
-                // Show progress toasts
                 if (data.status === 'batch_complete') {
                   toast({
                     title: `Batch ${data.batch} Complete`,
@@ -266,14 +275,19 @@ export default function ConversationsPage() {
                   });
                 }
 
-                // Final result
                 if (data.status === 'complete') {
                   finalResult = {
-                    inserted: data.inserted,
-                    updated: data.updated
+                    inserted: data.inserted ?? 0,
+                    updated: data.updated ?? 0
                   };
                 }
+              } catch (eventError) {
+                console.error('[Conversations] Failed to parse sync event payload:', eventError, payload);
               }
+            }
+
+            if (done) {
+              break;
             }
           }
         } finally {
