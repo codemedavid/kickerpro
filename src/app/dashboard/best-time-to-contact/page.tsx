@@ -330,7 +330,7 @@ export default function BestTimeToContactPage() {
   };
 
   const formatWindow = (window: RecommendedWindow) => {
-    return `${window.dow} ${window.start}-${window.end}`;
+    return `${window.dow} ${window.time}`;
   };
 
   const formatDate = (dateString: string | null) => {
@@ -1154,7 +1154,7 @@ export default function BestTimeToContactPage() {
                           <div>
                             <div className="font-mono font-medium">{formatWindow(window)}</div>
                             <div className="text-xs text-muted-foreground">
-                              {window.dow} • {window.start}:00-{window.end}:00
+                              {window.dow} • {window.time}
                             </div>
                           </div>
                         </div>
