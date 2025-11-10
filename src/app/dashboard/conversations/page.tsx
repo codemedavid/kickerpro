@@ -1127,7 +1127,7 @@ export default function ConversationsPage() {
                   </SelectItem>
                   <SelectItem value="replace">
                     <div className="flex items-center gap-2">
-                      <RefreshCw className="w-4 h-4 text-blue-600" />
+                      <X className="w-4 h-4 text-blue-600" />
                       <div>
                         <div className="font-medium">Replace Tags</div>
                         <div className="text-xs text-muted-foreground">Remove all tags and add selected ones</div>
