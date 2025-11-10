@@ -45,7 +45,7 @@ export function RealtimeSyncButton({
   const abortControllerRef = useRef<AbortController | null>(null);
   const { toast } = useToast();
 
-  const handleSync = async (resume: boolean = false) => {
+  const handleSync = async (resume: boolean = false, autoRetry: boolean = true) => {
     setIsSyncing(true);
     setShowProgress(true);
     setProgress({
@@ -120,25 +120,42 @@ export function RealtimeSyncButton({
               // Auto-hide after 15 seconds
               setTimeout(() => setShowProgress(false), 15000);
             } else if (data.status === 'error') {
-              toast({
-                title: "⚠️ Sync Interrupted",
-                description: (
-                  <div className="space-y-2">
-                    <p>{data.message}</p>
-                    <p className="text-sm">Progress: {data.inserted} new, {data.updated} updated</p>
-                    {data.error === 'timeout' && (
-                      <p className="text-xs text-muted-foreground">
-                        Click the Resume button to continue from where you left off.
-                      </p>
-                    )}
-                  </div>
-                ),
-                variant: "destructive",
-                duration: 10000
-              });
+              // Auto-resume on timeout error
+              if (data.error === 'timeout' && autoRetry) {
+                console.log('[Auto Resume] Timeout detected, auto-resuming in 2 seconds...');
+                toast({
+                  title: "🔄 Auto-Resuming...",
+                  description: (
+                    <div className="space-y-1">
+                      <p>Sync timeout - automatically resuming...</p>
+                      <p className="text-sm">Progress: {data.inserted} new, {data.updated} updated</p>
+                    </div>
+                  ),
+                  duration: 3000
+                });
 
-              if (onSyncComplete) {
-                onSyncComplete();
+                // Wait 2 seconds then auto-resume
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Recursive call to resume automatically
+                await handleSync(true, true);
+                return; // Exit this iteration
+              } else {
+                toast({
+                  title: "⚠️ Sync Interrupted",
+                  description: (
+                    <div className="space-y-2">
+                      <p>{data.message}</p>
+                      <p className="text-sm">Progress: {data.inserted} new, {data.updated} updated</p>
+                    </div>
+                  ),
+                  variant: "destructive",
+                  duration: 10000
+                });
+
+                if (onSyncComplete) {
+                  onSyncComplete();
+                }
               }
             }
           }
@@ -148,7 +165,7 @@ export function RealtimeSyncButton({
       if (error instanceof Error && error.name === 'AbortError') {
         toast({
           title: "Sync Cancelled",
-          description: "Progress has been saved. Click Resume to continue.",
+          description: "Progress has been saved.",
         });
       } else {
         console.error('[Realtime Sync] Error:', error);
@@ -192,35 +209,31 @@ export function RealtimeSyncButton({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        {hasCheckpoint && !isSyncing ? (
-          <Button
-            onClick={() => handleSync(true)}
-            size="sm"
-            className="bg-orange-600 hover:bg-orange-700"
-          >
-            <Play className="mr-2 w-4 h-4" />
-            Resume Sync
-          </Button>
-        ) : (
-          <Button
-            onClick={() => handleSync(false)}
-            disabled={isSyncing}
-            size="sm"
-            className="bg-[#1877f2] hover:bg-[#166fe5]"
-          >
-            {isSyncing ? (
-              <>
-                <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                Syncing...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 w-4 h-4" />
-                Sync from Facebook
-              </>
-            )}
-          </Button>
-        )}
+        <Button
+          onClick={() => handleSync(hasCheckpoint, true)}
+          disabled={isSyncing}
+          size="sm"
+          className={hasCheckpoint && !isSyncing 
+            ? "bg-orange-600 hover:bg-orange-700" 
+            : "bg-[#1877f2] hover:bg-[#166fe5]"
+          }
+        >
+          {isSyncing ? (
+            <>
+              <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+              Syncing...
+            </>
+          ) : hasCheckpoint ? (
+            <>
+              <Play className="mr-2 w-4 h-4" />
+              Resume Sync
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 w-4 h-4" />
+              Sync from Facebook
+            </>
+          )}
 
         {isSyncing && (
           <Button
@@ -322,7 +335,14 @@ export function RealtimeSyncButton({
             {/* Current Processing */}
             {progress.status === 'processing' && progress.current > 0 && (
               <div className="text-xs text-center text-muted-foreground pt-1 border-t">
-                Processing conversation #{progress.current}...
+                Processing conversation #{progress.current}... (Auto-resume enabled)
+              </div>
+            )}
+            
+            {/* Auto-Resume Indicator */}
+            {progress.status === 'resuming' && (
+              <div className="text-xs text-center text-orange-600 font-semibold pt-1 border-t">
+                🔄 Auto-resuming from conversation #{progress.current}...
               </div>
             )}
           </div>
