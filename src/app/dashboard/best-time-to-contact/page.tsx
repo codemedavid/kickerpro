@@ -281,7 +281,20 @@ export default function BestTimeToContactPage() {
   };
 
   const handleUpdateTimezone = async () => {
-    if (!selectedContact || !newTimezone) return;
+    if (!selectedContact || !newTimezone) {
+      console.error('[Timezone Update] Missing data:', { 
+        hasContact: !!selectedContact, 
+        newTimezone 
+      });
+      toast.error('Please select a timezone');
+      return;
+    }
+
+    console.log('[Timezone Update] Starting update:', {
+      conversation_id: selectedContact.conversation_id,
+      current_timezone: selectedContact.timezone,
+      new_timezone: newTimezone,
+    });
 
     try {
       const response = await fetch('/api/contact-timing/update-timezone', {
@@ -293,8 +306,11 @@ export default function BestTimeToContactPage() {
         }),
       });
 
+      const data = await response.json();
+      console.log('[Timezone Update] API Response:', data);
+
       if (!response.ok) {
-        throw new Error('Failed to update timezone');
+        throw new Error(data.error || 'Failed to update timezone');
       }
 
       toast.success('Timezone updated! Recomputing best times...');
@@ -308,23 +324,37 @@ export default function BestTimeToContactPage() {
       });
       
       setEditingTimezone(false);
+      setNewTimezone('');
       
       // Refresh recommendations after a short delay
       setTimeout(() => {
+        console.log('[Timezone Update] Refreshing recommendations...');
         fetchRecommendations();
       }, 2000);
     } catch (error) {
-      console.error('Error updating timezone:', error);
-      toast.error('Failed to update timezone');
+      console.error('[Timezone Update] Error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update timezone');
     }
   };
 
   const handleBulkUpdateTimezone = async () => {
-    if (selectedContactIds.size === 0 || !bulkTimezone) return;
+    if (selectedContactIds.size === 0 || !bulkTimezone) {
+      console.error('[Bulk Timezone Update] Missing data:', { 
+        count: selectedContactIds.size, 
+        timezone: bulkTimezone 
+      });
+      toast.error('Please select contacts and timezone');
+      return;
+    }
 
     setBulkUpdating(true);
+    const conversationIds = Array.from(selectedContactIds);
+    console.log('[Bulk Timezone Update] Starting update:', {
+      count: conversationIds.length,
+      timezone: bulkTimezone,
+    });
+
     try {
-      const conversationIds = Array.from(selectedContactIds);
       const response = await fetch('/api/contact-timing/bulk-update-timezone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -334,11 +364,13 @@ export default function BestTimeToContactPage() {
         }),
       });
 
+      const data = await response.json();
+      console.log('[Bulk Timezone Update] API Response:', data);
+
       if (!response.ok) {
-        throw new Error('Failed to bulk update timezone');
+        throw new Error(data.error || 'Failed to bulk update timezone');
       }
 
-      const data = await response.json();
       toast.success(`Updated ${data.count} contact(s)! Recomputing best times...`);
       
       setBulkTimezoneDialogOpen(false);
@@ -347,11 +379,12 @@ export default function BestTimeToContactPage() {
       
       // Refresh recommendations after a short delay
       setTimeout(() => {
+        console.log('[Bulk Timezone Update] Refreshing recommendations...');
         fetchRecommendations();
       }, 2000);
     } catch (error) {
-      console.error('Error bulk updating timezone:', error);
-      toast.error('Failed to update timezones');
+      console.error('[Bulk Timezone Update] Error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update timezones');
     } finally {
       setBulkUpdating(false);
     }
@@ -798,7 +831,14 @@ export default function BestTimeToContactPage() {
       </Card>
 
       {/* Contact Details Dialog */}
-      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+      <Dialog open={detailsDialogOpen} onOpenChange={(open) => {
+        setDetailsDialogOpen(open);
+        if (!open) {
+          // Reset edit state when dialog closes
+          setEditingTimezone(false);
+          setNewTimezone('');
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
