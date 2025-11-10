@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 
 // Batch size for parallel processing
 const PARALLEL_BATCH_SIZE = 10;
@@ -9,7 +10,7 @@ const FACEBOOK_API_LIMIT = 100;
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json(

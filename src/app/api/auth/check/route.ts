@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getCookieDebugState, getUserIdFromCookies } from '@/lib/auth/cookies';
 
 /**
  * Diagnostic endpoint to check authentication status
@@ -16,13 +17,15 @@ export async function GET() {
     const fbAuthUser = cookieStore.get('fb-auth-user');
     const fbAccessToken = cookieStore.get('fb-access-token');
     const fbTokenExpires = cookieStore.get('fb-token-expires');
+    const userId = getUserIdFromCookies(cookieStore);
+    const authCookieState = getCookieDebugState(cookieStore);
     
     // Get all cookies for debugging
     const allCookies = cookieStore.getAll();
     
     const diagnostics = {
       timestamp: new Date().toISOString(),
-      authenticated: !!(fbUserId || fbAuthUser),
+      authenticated: !!userId,
       cookies: {
         'fb-user-id': fbUserId ? {
           value: fbUserId.value,
@@ -38,6 +41,7 @@ export async function GET() {
           present: false,
           message: 'Cookie not found - user not logged in'
         },
+        summary: authCookieState,
         'fb-access-token': fbAccessToken ? {
           present: true,
           length: fbAccessToken.value.length,
@@ -58,7 +62,7 @@ export async function GET() {
       totalCookies: allCookies.length,
       allCookieNames: allCookies.map(c => c.name),
       environment: process.env.NODE_ENV,
-      diagnosis: fbUserId || fbAuthUser
+      diagnosis: userId
         ? '✅ User is authenticated - cookies present'
         : '⚠️ User is NOT authenticated - no auth cookies found (this is normal if not logged in)'
     };
