@@ -39,6 +39,9 @@ interface SyncStatus {
   resumeSession?: string;
   lastSyncTime?: string;
   progress?: number;
+  currentBatch?: number;
+  totalBatches?: number;
+  realTimeCount?: number; // Real-time counter for live updates
 }
 
 export function ManualSyncButton({
@@ -63,70 +66,99 @@ export function ManualSyncButton({
   }, [pageId]);
 
   const handleSync = async (resumeSession?: string) => {
-    setSyncStatus({ status: 'syncing', progress: 0 });
+    setSyncStatus({ 
+      status: 'syncing', 
+      progress: 0,
+      realTimeCount: 0,
+      currentBatch: 0
+    });
 
     try {
-      const response = await fetch('/api/conversations/sync-fixed', {
+      // Use streaming endpoint for real-time updates
+      const response = await fetch('/api/conversations/sync-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pageId,
-          facebookPageId,
-          resumeSession
+          facebookPageId
         })
       });
 
-      if (response.status === 409) {
-        // Sync already in progress
-        toast({
-          title: 'Sync In Progress',
-          description: 'A sync is already running for this page. Please wait for it to complete.',
-          variant: 'default'
-        });
-        setSyncStatus({ status: 'idle' });
-        return;
-      }
-
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || 'Sync failed');
+        if (response.status === 409) {
+          // Sync already in progress
+          toast({
+            title: 'Sync In Progress',
+            description: 'A sync is already running for this page. Please wait for it to complete.',
+            variant: 'default'
+          });
+          setSyncStatus({ status: 'idle' });
+          return;
+        }
+        throw new Error('Sync request failed');
       }
 
-      // Check if partial sync (more data to fetch)
-      if (result.hasMore && result.resumeSession) {
-        setSyncStatus({
-          status: 'partial',
-          message: `Synced ${result.synced} conversations`,
-          synced: result.synced,
-          inserted: result.inserted,
-          updated: result.updated,
-          hasMore: true,
-          resumeSession: result.resumeSession,
-          progress: 50 // Indicate partial progress
-        });
+      // Read the stream for real-time updates
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-        toast({
-          title: 'Partial Sync Complete',
-          description: (
-            <div className="space-y-2">
-              <p>Synced {result.inserted + result.updated} conversations so far.</p>
-              <p className="text-sm text-muted-foreground">
-                {result.inserted} new, {result.updated} updated
-              </p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleSync(result.resumeSession)}
-                className="mt-2"
-              >
-                Continue Sync
-              </Button>
-            </div>
-          ),
-          duration: 10000
-        });
-      } else {
+      if (!reader) {
+        throw new Error('No response stream available');
+      }
+
+      let buffer = '';
+      let lastResult: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        // Decode the chunk
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete messages (split by \n\n)
+        const messages = buffer.split('\n\n');
+        buffer = messages.pop() || ''; // Keep incomplete message in buffer
+
+        for (const message of messages) {
+          if (!message.trim() || !message.startsWith('data: ')) continue;
+
+          try {
+            const data = JSON.parse(message.slice(6)); // Remove 'data: ' prefix
+            lastResult = data;
+
+            // Update status based on stream message
+            if (data.status === 'syncing' || data.status === 'batch_complete') {
+              setSyncStatus({
+                status: 'syncing',
+                realTimeCount: data.total || 0,
+                inserted: data.inserted || 0,
+                updated: data.updated || 0,
+                currentBatch: data.batch || 0,
+                progress: Math.min((data.total || 0) / 100 * 10, 90) // Estimate progress
+              });
+            } else if (data.status === 'complete' || data.status === 'complete_with_errors') {
+              // Final result
+              break;
+            } else if (data.status === 'error') {
+              throw new Error(data.error || 'Sync failed');
+            }
+          } catch (parseError) {
+            console.warn('[Sync] Failed to parse message:', message);
+          }
+        }
+      }
+
+      // Use the last result for final status
+      const result = lastResult;
+
+      if (!result) {
+        throw new Error('No sync result received');
+      }
+
+      // Check for completion
+      if (result.status === 'complete' || result.status === 'complete_with_errors') {
         // Complete sync
         const now = new Date();
         setLastSync(now);
@@ -265,11 +297,21 @@ export function ManualSyncButton({
 
       {/* Progress Bar for Syncing State */}
       {showProgress && syncStatus.status === 'syncing' && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           <Progress value={syncStatus.progress} className="h-2" />
-          <p className="text-xs text-muted-foreground text-center">
-            Fetching conversations from Facebook...
-          </p>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {syncStatus.currentBatch ? `Batch ${syncStatus.currentBatch}` : 'Fetching...'}
+            </span>
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {syncStatus.realTimeCount || 0} conversations
+            </span>
+          </div>
+          {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
+            <p className="text-xs text-center text-muted-foreground">
+              {syncStatus.inserted} new • {syncStatus.updated} updated
+            </p>
+          )}
         </div>
       )}
 
