@@ -11,7 +11,8 @@ export async function GET() {
     // Get all cookies
     const allCookies = cookieStore.getAll();
     const fbUserIdCookie = cookieStore.get('fb-user-id')?.value;
-    const fbAuthUserCookie = getAuthenticatedUserId(cookieStore);
+    const fbAuthUserCookie = cookieStore.get('fb-auth-user')?.value;
+    const effectiveUserId = getAuthenticatedUserId(cookieStore);
     const fbAccessTokenCookie = cookieStore.get('fb-access-token')?.value;
 
     // Get user from database
@@ -73,6 +74,7 @@ export async function GET() {
         fbAccessToken: fbAccessTokenCookie ? `Present (${fbAccessTokenCookie.substring(0, 20)}...)` : 'Missing',
         allCookieNames: allCookies.map(c => c.name)
       },
+      effectiveUserId,
       database: {
         userFound: !!dbUser,
         userId: dbUser?.id || 'None',

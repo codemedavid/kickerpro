@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 /**
  * Real-time monitoring endpoint for AI automation
@@ -18,7 +19,7 @@ export async function GET(
     async start(controller) {
       try {
         const cookieStore = await cookies();
-        const userId = cookieStore.get('fb-user-id')?.value;
+        const userId = getAuthenticatedUserId(cookieStore);
         const { id: ruleId } = await params;
 
         if (!userId) {
@@ -204,7 +205,7 @@ export async function POST(
 ) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     const { id: ruleId } = await params;
 
     if (!userId) {

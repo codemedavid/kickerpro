@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 /**
  * Immediate fix for stuck messages - triggers processing right now
@@ -8,7 +9,7 @@ import { cookies } from 'next/headers';
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

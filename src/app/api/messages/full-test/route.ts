@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 /**
  * Full comprehensive test of entire message sending pipeline
@@ -18,7 +19,7 @@ export async function GET(_request: NextRequest) {
 
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     // Test 1: Authentication
     results.tests.push({

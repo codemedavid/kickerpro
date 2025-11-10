@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 /**
  * Debug send - shows EVERY step of message sending
  * GET /api/messages/debug-send
@@ -22,7 +23,7 @@ export async function GET(_request: NextRequest) {
     addLog('START', 'info', 'Starting debug send test');
 
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       addLog('AUTH', 'error', 'Not authenticated');
