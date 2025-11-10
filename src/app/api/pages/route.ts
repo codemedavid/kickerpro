@@ -62,7 +62,7 @@ async function exchangeForLongLivedToken(shortLivedToken: string, pageId: string
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = cookieStore.get('fb-user-id')?.value;
 
     if (!userId) {
       return NextResponse.json(
@@ -99,7 +99,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = cookieStore.get('fb-user-id')?.value;
 
     if (!userId) {
       return NextResponse.json(
