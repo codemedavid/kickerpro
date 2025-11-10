@@ -219,7 +219,7 @@ Respond ONLY with a JSON object in this exact format:
           });
         }
 
-        // Step 3: Decision Logic - Both prompts must agree
+        // Step 3: Decision Logic (improved)
         const recommendedStage = stages.find(
           s => s.name.toLowerCase() === globalAnalysis.recommended_stage?.toLowerCase()
         );
@@ -233,16 +233,30 @@ Respond ONLY with a JSON object in this exact format:
         let finalConfidence: number;
 
         if (recommendedStage && stageSpecificMatch) {
-          // Both agree!
+          // Perfect match - Both agree!
           finalStageId = recommendedStage.id;
           bothAgreed = true;
           finalConfidence = Math.min(globalAnalysis.confidence, stageSpecificMatch.confidence);
         } else {
-          // Disagreement - move to default/unmatched stage
-          const defaultStage = stages.find(s => s.is_default);
-          finalStageId = defaultStage?.id || stages[stages.length - 1].id;
-          bothAgreed = false;
-          finalConfidence = 0;
+          // Check if ANY stage-specific analysis says "belongs=true"
+          const anyStageMatch = stageAnalyses
+            .filter(sa => sa.belongs)
+            .sort((a, b) => b.confidence - a.confidence)[0]; // Get highest confidence match
+
+          if (anyStageMatch) {
+            // Use the stage-specific match even if global didn't recommend it
+            finalStageId = anyStageMatch.stage_id;
+            bothAgreed = false; // They didn't both agree on the same stage
+            finalConfidence = anyStageMatch.confidence * 0.8; // Slightly lower confidence
+            console.log(`[Pipeline Analyze] Using stage-specific match: ${anyStageMatch.stage_name} (confidence: ${anyStageMatch.confidence})`);
+          } else {
+            // No stage matched - move to default/unmatched stage
+            const defaultStage = stages.find(s => s.is_default);
+            finalStageId = defaultStage?.id || stages[stages.length - 1].id;
+            bothAgreed = false;
+            finalConfidence = 0;
+            console.log(`[Pipeline Analyze] No stage matched, moving to default stage`);
+          }
         }
 
         // Update opportunity with analysis results
@@ -272,6 +286,17 @@ Respond ONLY with a JSON object in this exact format:
 
         // Create stage history entry if stage changed
         if (finalStageId !== opp.stage_id) {
+          const stageMatch = stageAnalyses.find(sa => sa.stage_id === finalStageId);
+          let reason: string;
+          
+          if (bothAgreed) {
+            reason = `AI analysis (both prompts agreed): ${globalAnalysis.reasoning}`;
+          } else if (stageMatch && stageMatch.belongs) {
+            reason = `AI stage-specific match: ${stageMatch.reasoning}`;
+          } else {
+            reason = 'No stage criteria matched - moved to default stage';
+          }
+          
           await supabase
             .from('pipeline_stage_history')
             .insert({
@@ -280,9 +305,7 @@ Respond ONLY with a JSON object in this exact format:
               to_stage_id: finalStageId,
               moved_by: null,
               moved_by_ai: true,
-              reason: bothAgreed
-                ? `AI analysis: ${globalAnalysis.reasoning}`
-                : 'AI analysis disagreement - moved to unmatched'
+              reason
             });
         }
 
