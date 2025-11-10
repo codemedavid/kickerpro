@@ -87,7 +87,7 @@ async function handleMessage(event: WebhookEvent) {
     return;
   }
 
-  console.log(`[Webhook⚡] Message from ${senderId} to ${recipientId}`);
+  console.log(`[Webhook⚡] New message from ${senderId} to page ${recipientId}`);
   const startTime = Date.now();
 
   try {
@@ -101,12 +101,12 @@ async function handleMessage(event: WebhookEvent) {
       // Cache miss - fetch from database
       const { data: page } = await supabase
         .from('facebook_pages')
-        .select('user_id')
+        .select('user_id, access_token')
         .eq('facebook_page_id', recipientId)
         .single();
 
       if (!page) {
-        console.log(`[Webhook⚡] No page found for: ${recipientId}`);
+        console.log(`[Webhook⚡] No page found for: ${recipientId}. This message will be ignored.`);
         return;
       }
 
@@ -115,15 +115,40 @@ async function handleMessage(event: WebhookEvent) {
       await setCached(cacheKey, userId, 300);
     }
 
-    // Save conversation with optimized upsert
+    // Fetch sender name from Facebook API if possible
+    let senderName = 'Facebook User';
+    try {
+      const { data: page } = await supabase
+        .from('facebook_pages')
+        .select('access_token')
+        .eq('facebook_page_id', recipientId)
+        .single();
+
+      if (page?.access_token) {
+        const userInfoUrl = `https://graph.facebook.com/v18.0/${senderId}?fields=name&access_token=${page.access_token}`;
+        const userInfoRes = await fetch(userInfoUrl);
+        const userInfo = await userInfoRes.json();
+        
+        if (userInfo.name) {
+          senderName = userInfo.name;
+          console.log(`[Webhook⚡] Fetched sender name from Facebook: ${senderName}`);
+        }
+      }
+    } catch (nameError) {
+      console.warn('[Webhook⚡] Could not fetch sender name:', nameError);
+      // Continue with default name
+    }
+
+    // Save/update conversation with real-time data
     const payload = {
       user_id: userId,
       page_id: recipientId,
       sender_id: senderId,
-      sender_name: 'Facebook User',
+      sender_name: senderName,
       last_message: messageText || '',
       last_message_time: new Date(timestamp).toISOString(),
-      conversation_status: 'active'
+      conversation_status: 'active',
+      updated_at: new Date().toISOString()
     };
 
     const attemptUpsert = async (onConflict: string) =>
@@ -132,22 +157,29 @@ async function handleMessage(event: WebhookEvent) {
         .upsert(payload, {
           onConflict,
           ignoreDuplicates: false
-        });
+        })
+        .select();
 
-    let { error } = await attemptUpsert('page_id,sender_id');
+    let { data: upsertedConversation, error } = await attemptUpsert('page_id,sender_id');
 
     if (error && error.code === '42P10') {
-      ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
+      ({ data: upsertedConversation, error } = await attemptUpsert('user_id,page_id,sender_id'));
     }
 
     if (error) {
-      console.error('[Webhook⚡] Error saving:', error.message);
+      console.error('[Webhook⚡] Error saving conversation:', error.message);
     } else {
       // Invalidate conversation cache for instant UI updates
       await invalidateConversationCache(recipientId);
       
       const duration = Date.now() - startTime;
-      console.log(`[Webhook⚡] ✓ Saved in ${duration}ms`);
+      const isNewContact = upsertedConversation?.[0]?.created_at === upsertedConversation?.[0]?.updated_at;
+      
+      if (isNewContact) {
+        console.log(`[Webhook⚡] ✨ NEW CONTACT added: ${senderName} (${senderId}) in ${duration}ms`);
+      } else {
+        console.log(`[Webhook⚡] ✓ Contact updated: ${senderName} (${senderId}) in ${duration}ms`);
+      }
     }
   } catch (error) {
     console.error('[Webhook⚡] Error:', error);

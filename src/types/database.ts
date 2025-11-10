@@ -9,6 +9,9 @@ export interface Database {
           email: string | null;
           profile_picture: string | null;
           role: 'admin' | 'manager' | 'editor' | 'member';
+          facebook_access_token: string | null;
+          facebook_token_expires_at: string | null;
+          facebook_token_updated_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -19,6 +22,9 @@ export interface Database {
           email?: string | null;
           profile_picture?: string | null;
           role?: 'admin' | 'manager' | 'editor' | 'member';
+          facebook_access_token?: string | null;
+          facebook_token_expires_at?: string | null;
+          facebook_token_updated_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -29,6 +35,9 @@ export interface Database {
           email?: string | null;
           profile_picture?: string | null;
           role?: 'admin' | 'manager' | 'editor' | 'member';
+          facebook_access_token?: string | null;
+          facebook_token_expires_at?: string | null;
+          facebook_token_updated_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -43,6 +52,8 @@ export interface Database {
           profile_picture: string | null;
           follower_count: number | null;
           access_token: string;
+          access_token_expires_at: string | null;
+          last_synced_at: string | null;
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -56,6 +67,8 @@ export interface Database {
           profile_picture?: string | null;
           follower_count?: number | null;
           access_token: string;
+          access_token_expires_at?: string | null;
+          last_synced_at?: string | null;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -69,6 +82,8 @@ export interface Database {
           profile_picture?: string | null;
           follower_count?: number | null;
           access_token?: string;
+          access_token_expires_at?: string | null;
+          last_synced_at?: string | null;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;

@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/retry-failed",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-all-pages",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

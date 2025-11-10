@@ -112,12 +112,35 @@ export default function LoginPage() {
               console.log('[Login] Authentication successful!');
               console.log('[Login] User ID:', data.userId);
               console.log('[Login] Mode:', data.mode);
+              
+              // Trigger auto-connect for Facebook pages and conversations
+              console.log('[Login] Triggering auto-connect for Facebook pages...');
+              try {
+                const autoConnectRes = await fetch('/api/facebook/auto-connect', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const autoConnectData = await autoConnectRes.json();
+                
+                if (autoConnectData.success) {
+                  console.log('[Login] ✅ Auto-connect successful:', autoConnectData);
+                  console.log(`[Login] Connected ${autoConnectData.connected} page(s), synced ${autoConnectData.totalConversations} conversation(s)`);
+                } else {
+                  console.warn('[Login] Auto-connect failed:', autoConnectData.error);
+                  // Don't block login on auto-connect failure
+                }
+              } catch (autoConnectError) {
+                console.warn('[Login] Auto-connect error:', autoConnectError);
+                // Don't block login on auto-connect error
+              }
+              
               console.log('[Login] Redirecting to dashboard...');
               
               // Force reload to refresh auth state
               setTimeout(() => {
                 window.location.href = '/dashboard';
-              }, 500);
+              }, 1000);
             } else {
               console.error('[Login] Authentication failed');
               console.error('[Login] Status:', res.status);
