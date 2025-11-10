@@ -12,6 +12,7 @@ const MAX_BATCHES = 500; // Safety limit to prevent infinite loops
 const BATCH_RETRY_ATTEMPTS = 3;
 const BATCH_RETRY_DELAY_MS = 2000;
 const EVENTS_CHUNK_SIZE = 500;
+const FACEBOOK_API_BATCH_SIZE = 20; // Smaller batches for more continuous feel (was 100)
 
 // Helper to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
         let batchNumber = 0;
         let failedBatches = 0;
         
-        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=100${sinceParam}&access_token=${page.access_token}`;
+        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_BATCH_SIZE}${sinceParam}&access_token=${page.access_token}`;
 
         // Fetch and process conversations with real-time updates
         while (nextUrl) {
@@ -324,12 +325,33 @@ export async function POST(request: NextRequest) {
                 metadata: Record<string, unknown>;
               }> = [];
 
+              let processedInBatch = 0;
               for (const row of upsertedRows) {
                 syncedConversationIds.add(row.id);
                 const isNewConversation = row.created_at === row.updated_at;
                 
                 if (isNewConversation) {
                   insertedCount++;
+                } else {
+                  updatedCount++;
+                }
+                
+                processedInBatch++;
+                
+                // Send micro-updates every 5 conversations for smooth counter
+                if (processedInBatch % 5 === 0) {
+                  send({
+                    status: 'syncing',
+                    message: `Syncing...`,
+                    total: insertedCount + updatedCount,
+                    inserted: insertedCount,
+                    updated: updatedCount,
+                    fetched: fetchedInBatch,
+                    processing: upsertedRows.length - processedInBatch
+                  });
+                }
+                
+                if (isNewConversation) {
                   
                   // Get messages for this conversation
                   const key = `${row.page_id}-${row.sender_id}`;
@@ -387,8 +409,6 @@ export async function POST(request: NextRequest) {
                       });
                     }
                   }
-                } else {
-                  updatedCount++;
                 }
               }
 
