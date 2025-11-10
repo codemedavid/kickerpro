@@ -31,6 +31,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
+import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 interface FacebookPage {
   id: string;
@@ -61,6 +62,7 @@ export default function FacebookPagesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const supabase = createClient();
+  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [availablePages, setAvailablePages] = useState<FacebookPageFromAPI[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
@@ -74,7 +76,8 @@ export default function FacebookPagesPage() {
       if (!response.ok) throw new Error('Failed to fetch pages');
       return response.json();
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
 
   const deleteMutation = useMutation({

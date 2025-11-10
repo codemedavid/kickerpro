@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
 import { format, parseISO } from 'date-fns';
 import { FailedRecipientsDialog } from '@/components/messages/FailedRecipientsDialog';
+import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 interface SentMessage {
   id: string;
@@ -48,6 +49,7 @@ export default function HistoryPage() {
   const router = useRouter();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
 
   const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -100,7 +102,8 @@ export default function HistoryPage() {
         return data.messages || [];
       }
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
 
   // Cancel mutation
