@@ -16,3 +16,4 @@ COMMENT ON COLUMN public.users.facebook_token_updated_at IS 'Timestamp when the 
 
 
 
+

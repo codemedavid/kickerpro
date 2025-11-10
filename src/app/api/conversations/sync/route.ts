@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
 
     console.log('[Sync Conversations] Syncing for page:', facebookPageId);
 
-    // Get page access token from database
+    // Get page access token and last sync time from database
     const supabase = await createClient();
     const { data: page, error: pageError } = await supabase
       .from('facebook_pages')
-      .select('id, facebook_page_id, access_token')
+      .select('id, facebook_page_id, access_token, last_synced_at')
       .eq('id', pageId)
       .single();
 
@@ -56,11 +56,21 @@ export async function POST(request: NextRequest) {
     const syncedConversationIds = new Set<string>();
     let insertedCount = 0;
     let updatedCount = 0;
+    let skippedCount = 0;
     let totalConversations = 0;
     let totalEventsCreated = 0;
-    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}&access_token=${page.access_token}`;
+    
+    // Incremental sync: only fetch conversations updated since last sync
+    const lastSyncTime = page.last_synced_at;
+    const sinceParam = lastSyncTime ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` : '';
+    
+    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
 
-    console.log('[Sync Conversations] Starting to fetch ALL conversations from Facebook with message history...');
+    const syncMode = lastSyncTime ? 'incremental' : 'full';
+    console.log(`[Sync Conversations] Starting ${syncMode} sync for page:`, facebookPageId);
+    if (lastSyncTime) {
+      console.log('[Sync Conversations] Only fetching conversations updated since:', lastSyncTime);
+    }
 
     // Fetch all pages of conversations from Facebook
     while (nextUrl) {
@@ -89,7 +99,11 @@ export async function POST(request: NextRequest) {
         conversation_status: string;
       }> = [];
       
-      const conversationToMessages = new Map<string, any[]>();
+      const conversationToMessages = new Map<string, {
+        messages: any[];
+        lastTime: string;
+        participantId: string;
+      }>();
 
       // Extract all valid participants and their messages
       for (const conv of conversations) {
@@ -247,12 +261,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Update last sync timestamp
+    await supabase
+      .from('facebook_pages')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('id', pageId);
+
     const uniqueSynced = syncedConversationIds.size;
-    console.log('[Sync Conversations] Completed! Total conversations from Facebook:', totalConversations);
+    console.log(`[Sync Conversations] ${syncMode.toUpperCase()} sync completed! Total conversations from Facebook:`, totalConversations);
     console.log('[Sync Conversations] Successfully synced:', uniqueSynced, 'conversations', {
       inserted: insertedCount,
       updated: updatedCount,
-      eventsCreated: totalEventsCreated
+      skipped: skippedCount,
+      eventsCreated: totalEventsCreated,
+      mode: syncMode
     });
 
     return NextResponse.json({
@@ -260,10 +282,12 @@ export async function POST(request: NextRequest) {
       synced: uniqueSynced,
       inserted: insertedCount,
       updated: updatedCount,
+      skipped: skippedCount,
       total: totalConversations,
       eventsCreated: totalEventsCreated,
+      syncMode: syncMode,
       computeContactTiming: insertedCount > 0,
-      message: `Synced ${uniqueSynced} conversation(s) from Facebook with ${totalEventsCreated} events`
+      message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync: ${uniqueSynced} conversation(s) with ${totalEventsCreated} events`
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);

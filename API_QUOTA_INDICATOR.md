@@ -282,3 +282,4 @@ Next Day → ⚡ 9/9 - All keys reset, back to AI
 
 **Ready to use! The indicator is now live on both pages.** 🚀
 
+

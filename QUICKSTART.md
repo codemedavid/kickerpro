@@ -1,156 +1,134 @@
-# 🚀 Quick Start Guide
+# Quick Start - Get Your Facebook Token in 5 Minutes
 
-Get your Facebook Bulk Messenger app running in 5 minutes!
+## 📋 Checklist
 
-## Prerequisites
+- [ ] Get App ID and App Secret from Facebook Developer Console
+- [ ] Generate short-lived token from Graph API Explorer
+- [ ] Fill in `.env` file
+- [ ] Run `npm run exchange`
+- [ ] Run `npm run verify`
 
-- Node.js 18+ installed
-- A Supabase account (free tier works)
-- A Facebook Developer account
+## Step 1: Get App Credentials (2 minutes)
 
-## Step 1: Install Dependencies (1 min)
+1. **Go to:** https://developers.facebook.com/apps/
+2. **Select your app** (or create one)
+3. **Navigate to:** Settings → Basic (left sidebar)
+4. **Copy:**
+   - App ID
+   - App Secret (click "Show" button)
 
-```bash
-cd nextjs-app
-npm install
-```
+## Step 2: Generate Short-Lived Token (2 minutes)
 
-## Step 2: Set Up Supabase (2 mins)
+1. **Go to:** https://developers.facebook.com/tools/explorer/
+2. **Select your app** from dropdown (top right)
+3. **Click:** "Generate Access Token" button
+4. **Select permissions you need:**
+   - For posting: `pages_manage_posts`, `pages_read_engagement`
+   - For reading: `pages_show_list`, `pages_read_engagement`
+   - For ads: `ads_management`, `ads_read`
+5. **Click:** "Generate Access Token"
+6. **Copy** the token (starts with `EAAG...`)
 
-1. Go to [supabase.com](https://supabase.com) and create a new project
-2. Wait for the database to initialize
-3. Go to **SQL Editor** in the left sidebar
-4. Copy the contents of `supabase-schema.sql`
-5. Paste into the SQL Editor and click **Run**
-6. Go to **Project Settings** > **API**
-7. Copy your **Project URL** and **anon public** key
+## Step 3: Fill Your `.env` File (1 minute)
 
-## Step 3: Create Environment File (1 min)
-
-Create a file named `.env.local` in the `nextjs-app` folder:
-
-```env
-# Supabase (required)
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
-
-# Facebook (can add later)
-NEXT_PUBLIC_FACEBOOK_APP_ID=your-app-id
-FACEBOOK_APP_SECRET=your-app-secret
-NEXT_PUBLIC_FACEBOOK_APP_VERSION=v18.0
-
-# Webhook (can add later)
-WEBHOOK_VERIFY_TOKEN=any-random-string
-
-# App URL
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-```
-
-> **Note:** You only need Supabase credentials to start. Facebook credentials can be added later.
-
-## Step 4: Run the App (30 seconds)
+Open the `.env` file in this directory and replace the placeholder values:
 
 ```bash
-npm run dev
+# Replace these with your actual values:
+APP_ID=123456789012345                    # From Step 1
+APP_SECRET=abc123def456ghi789jkl012        # From Step 1
+SHORT_LIVED_USER_TOKEN=EAAGm0PX4ZCpsBO... # From Step 2
+GRAPH_VERSION=v19.0                       # Keep as is (or update to your app version)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser!
+**Save the file!**
 
-## Step 5: Set Up Facebook (Optional - Can Do Later)
+## Step 4: Run the Scripts (30 seconds)
 
-To enable Facebook login:
+Open your terminal in this directory and run:
 
-1. Go to [developers.facebook.com](https://developers.facebook.com)
-2. Create a new app or use existing
-3. Add **Facebook Login** product
-4. Add **Messenger** product
-5. In **Facebook Login** settings:
-   - Add `http://localhost:3000/api/auth/callback` to **Valid OAuth Redirect URIs**
-6. Get your **App ID** and **App Secret** from **Settings** > **Basic**
-7. Add them to your `.env.local` file
-8. Restart the dev server
-
-## What You Can Do Now
-
-### Without Facebook Setup:
-- ✅ Explore the UI and pages
-- ✅ See the dashboard layout
-- ✅ View the compose message interface
-- ✅ Check the database structure in Supabase
-
-### With Facebook Setup:
-- ✅ Login with Facebook
-- ✅ Connect Facebook pages
-- ✅ Create and schedule messages
-- ✅ View message history
-- ✅ Manage team members
-
-## Common Issues
-
-### Port Already in Use
 ```bash
-# Kill process on port 3000
-npx kill-port 3000
-npm run dev
+# Exchange for long-lived token
+npm run exchange
 ```
 
-### CSS/Tailwind Errors
-Make sure you're using Tailwind CSS v3 (already configured):
+You should see:
+```
+✅ Long-lived user token acquired.
+   Expires in ~60 days
+   Saved to tokens/long_lived_user.json
+   Preview: EAAGm0...ZCpsBO
+```
+
 ```bash
-npm list tailwindcss
-# Should show version 3.x.x
+# Verify it works
+npm run verify
 ```
 
-### Database Connection Issues
-- Check your Supabase URL and keys in `.env.local`
-- Make sure you ran the SQL schema in Supabase
-- Verify the Supabase project is active
-
-### Facebook Login Not Working
-- Make sure you added the OAuth redirect URI in Facebook App settings
-- Verify your App ID and App Secret are correct
-- Check that Facebook Login product is added to your app
-
-## Next Steps
-
-1. **Read the full README.md** - Detailed setup instructions
-2. **Check DEPLOYMENT.md** - Deploy to Vercel
-3. **Review PROJECT_SUMMARY.md** - Full feature list
-4. **Explore the code** - Learn how it works
-
-## File Structure (What's Where)
-
+You should see:
 ```
-nextjs-app/
-├── src/app/              # All pages and routes
-│   ├── login/           # Login page
-│   ├── dashboard/       # Dashboard and sub-pages
-│   └── api/             # API endpoints
-├── src/components/       # React components
-├── src/lib/             # Utilities and helpers
-├── supabase-schema.sql  # Database setup
-└── .env.local          # Your credentials (create this!)
+✅ Token verification
+{
+  is_valid: true,
+  type: 'USER',
+  app_id: '123456789012345',
+  user_id: '...',
+  scopes: [...],
+  expires_at_epoch: ...
+}
 ```
 
-## Development Tips
+```bash
+# (Optional) Get page tokens
+npm run pages
+```
 
-- **Hot Reload:** Changes auto-refresh in browser
-- **TypeScript:** VS Code will show type errors
-- **Console:** Check browser console for errors
-- **Logs:** Check terminal for server logs
+## ✅ Done!
 
-## Need Help?
+Your long-lived token is saved in `tokens/long_lived_user.json` and will last ~60 days.
 
-1. Check the error message in terminal/browser
-2. Review README.md for detailed docs
-3. Verify environment variables are set
-4. Make sure Supabase schema is installed
+## 🔄 When Your Token Expires (in ~60 days)
 
----
+1. Generate a new short-lived token (Step 2)
+2. Update `SHORT_LIVED_USER_TOKEN` in `.env`
+3. Run `npm run exchange` again
 
-**Ready to customize?** Start editing files in `src/app/` and `src/components/`!
+## ❓ Troubleshooting
 
-**Want to deploy?** See `DEPLOYMENT.md` for Vercel deployment guide.
+### "Missing APP_ID, APP_SECRET, or SHORT_LIVED_USER_TOKEN"
+→ Check that you filled in all three values in `.env` and saved the file
 
-**Building features?** Check `PROJECT_SUMMARY.md` for the full feature list and architecture.
+### "Exchange failed: Invalid OAuth access token"
+→ Your short-lived token expired. Generate a new one (Step 2)
 
+### "This authorization code has been used"
+→ Same as above - generate a new short-lived token
+
+### "No pages returned"
+→ Make sure your user account is an admin/editor of at least one Facebook Page
+
+### Script won't run / syntax error
+→ Make sure you have Node.js 18+ installed: `node --version`
+
+## 🎯 What to Do with Your Long-Lived Token
+
+The long-lived token is saved in `tokens/long_lived_user.json`. You can:
+- Use it in your Next.js app to post to Facebook
+- Store it in your database
+- Add it to your production environment variables
+- Use it in API calls to Facebook Graph API
+
+**Example:** Using it in your app:
+```javascript
+import { readFile } from 'fs/promises';
+
+const tokenData = JSON.parse(await readFile('tokens/long_lived_user.json', 'utf-8'));
+const token = tokenData.long_lived_user_token;
+
+// Now use this token in your Facebook API calls
+const response = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
+```
+
+## 📚 Full Documentation
+
+See `FB_TOKEN_README.md` for complete documentation and advanced usage.

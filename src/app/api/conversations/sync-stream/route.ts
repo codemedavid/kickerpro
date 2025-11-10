@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         const supabase = await createClient();
         const { data: page, error: pageError } = await supabase
           .from('facebook_pages')
-          .select('id, facebook_page_id, access_token, name')
+          .select('id, facebook_page_id, access_token, name, last_synced_at')
           .eq('id', pageId)
           .single();
 
@@ -48,21 +48,29 @@ export async function POST(request: NextRequest) {
           return;
         }
 
+        // Incremental sync: only fetch conversations updated since last sync
+        const lastSyncTime = page.last_synced_at;
+        const syncMode = lastSyncTime ? 'incremental' : 'full';
+        const sinceParam = lastSyncTime ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` : '';
+
         send({ 
           status: 'fetching', 
-          message: `Fetching conversations from ${page.name}...`,
-          pageName: page.name
+          message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync from ${page.name}...`,
+          pageName: page.name,
+          syncMode: syncMode,
+          lastSyncTime: lastSyncTime
         });
 
         const effectiveFacebookPageId = page.facebook_page_id;
         const syncedConversationIds = new Set<string>();
         let insertedCount = 0;
         let updatedCount = 0;
+        let skippedCount = 0;
         let totalConversations = 0;
         let totalEventsCreated = 0;
         let batchNumber = 0;
         
-        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=100&access_token=${page.access_token}`;
+        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=100${sinceParam}&access_token=${page.access_token}`;
 
         // Fetch and process conversations with real-time updates
         while (nextUrl) {
@@ -282,17 +290,25 @@ export async function POST(request: NextRequest) {
           nextUrl = data.paging?.next || null;
         }
 
+        // Update last sync timestamp
+        await supabase
+          .from('facebook_pages')
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq('id', pageId);
+
         // Final summary
         send({
           status: 'complete',
-          message: 'Sync completed!',
+          message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync completed!`,
           inserted: insertedCount,
           updated: updatedCount,
+          skipped: skippedCount,
           total: insertedCount + updatedCount,
           totalConversationsFetched: totalConversations,
           eventsCreated: totalEventsCreated,
           computeContactTiming: insertedCount > 0,
-          batches: batchNumber
+          batches: batchNumber,
+          syncMode: syncMode
         });
 
         controller.close();
