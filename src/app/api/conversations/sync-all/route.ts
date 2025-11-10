@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { batchFetchConversations } from '@/lib/facebook/batch-api';
-import { withPooledClient } from '@/lib/supabase/pool';
 
 // Sync all pages using Facebook Batch API for maximum speed
 export async function POST(request: NextRequest) {
@@ -57,55 +56,60 @@ export async function POST(request: NextRequest) {
         let updatedCount = 0;
 
         if (conversations.length > 0) {
-          await withPooledClient(async (supabase) => {
-            // Prepare bulk payload
-            const conversationPayloads = [];
-            
-            for (const conv of conversations) {
-              const participants = conv.participants?.data || [];
-              const lastTime = conv.updated_time || new Date().toISOString();
+          // Prepare bulk payload
+          const conversationPayloads: Array<{
+            user_id: string;
+            page_id: string;
+            sender_id: string;
+            sender_name: string;
+            last_message_time: string;
+            conversation_status: string;
+          }> = [];
+          
+          for (const conv of conversations) {
+            const participants = conv.participants?.data || [];
+            const lastTime = conv.updated_time || new Date().toISOString();
 
-              for (const participant of participants) {
-                if (participant.id === page.facebook_page_id) continue;
+            for (const participant of participants) {
+              if (participant.id === page.facebook_page_id) continue;
 
-                conversationPayloads.push({
-                  user_id: userId,
-                  page_id: page.facebook_page_id,
-                  sender_id: participant.id,
-                  sender_name: participant.name || 'Facebook User',
-                  last_message_time: lastTime,
-                  conversation_status: 'active'
-                });
-              }
+              conversationPayloads.push({
+                user_id: userId,
+                page_id: page.facebook_page_id,
+                sender_id: participant.id,
+                sender_name: participant.name || 'Facebook User',
+                last_message_time: lastTime,
+                conversation_status: 'active'
+              });
             }
+          }
 
-            // Bulk upsert
-            if (conversationPayloads.length > 0) {
-              const { data: upsertedRows } = await supabase
-                .from('messenger_conversations')
-                .upsert(conversationPayloads, { 
-                  onConflict: 'page_id,sender_id',
-                  ignoreDuplicates: false 
-                })
-                .select('id, created_at, updated_at');
+          // Bulk upsert
+          if (conversationPayloads.length > 0) {
+            const { data: upsertedRows } = await supabase
+              .from('messenger_conversations')
+              .upsert(conversationPayloads, { 
+                onConflict: 'page_id,sender_id',
+                ignoreDuplicates: false 
+              })
+              .select('id, created_at, updated_at');
 
-              if (upsertedRows) {
-                for (const row of upsertedRows) {
-                  if (row.created_at === row.updated_at) {
-                    insertedCount++;
-                  } else {
-                    updatedCount++;
-                  }
+            if (upsertedRows) {
+              for (const row of upsertedRows) {
+                if (row.created_at === row.updated_at) {
+                  insertedCount++;
+                } else {
+                  updatedCount++;
                 }
               }
             }
+          }
 
-            // Update last sync time
-            await supabase
-              .from('facebook_pages')
-              .update({ last_synced_at: new Date().toISOString() })
-              .eq('id', page.id);
-          });
+          // Update last sync time
+          await supabase
+            .from('facebook_pages')
+            .update({ last_synced_at: new Date().toISOString() })
+            .eq('id', page.id);
         }
 
         return {
