@@ -234,9 +234,7 @@ export function FacebookConnectionCard() {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{page.name}</p>
                         {page.category && (
-                          {page.category && (
-                  <p className="text-xs text-muted-foreground">{page.category}</p>
-                )}
+                          <p className="text-xs text-muted-foreground">{page.category}</p>
                         )}
                       </div>
                       {page.followers_count !== undefined && (
