@@ -19,7 +19,6 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
 import { FacebookConnectionCard } from '@/components/facebook/facebook-connection-card';
-import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 interface Stats {
   messagesSent: number;
@@ -38,7 +37,6 @@ interface Activity {
 export default function DashboardPage() {
   const { user } = useAuth();
   const supabase = createClient();
-  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
 
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
     queryKey: ['stats', user?.id],
@@ -61,7 +59,6 @@ export default function DashboardPage() {
       };
     },
     enabled: !!user?.id,
-    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
 
   const { data: activities = [], isLoading: activitiesLoading } = useQuery<Activity[]>({
@@ -79,7 +76,6 @@ export default function DashboardPage() {
       return data;
     },
     enabled: !!user?.id,
-    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
 
   const statsCards = [

@@ -17,17 +17,13 @@ import {
   Tag,
   Bot,
   GitBranch,
-  Clock,
-  RefreshCw
+  Clock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
-import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -48,7 +44,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { isEnabled, toggle } = useAutoFetchStore();
 
   return (
     <>
@@ -105,32 +100,6 @@ export function Sidebar() {
               );
             })}
           </nav>
-
-          {/* Auto-Fetch Toggle */}
-          <div className="border-t px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <RefreshCw className={cn(
-                  "w-4 h-4",
-                  isEnabled ? "text-[#1877f2] animate-spin" : "text-muted-foreground"
-                )} />
-                <Label 
-                  htmlFor="auto-fetch" 
-                  className="text-sm font-medium cursor-pointer"
-                >
-                  Auto-Refresh
-                </Label>
-              </div>
-              <Switch
-                id="auto-fetch"
-                checked={isEnabled}
-                onCheckedChange={toggle}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1 ml-6">
-              Automatically fetch new conversations
-            </p>
-          </div>
 
           {/* User Profile */}
           <div className="border-t p-4">

@@ -34,7 +34,6 @@ import { TagFilter } from '@/components/ui/tag-filter';
 import { ConversationTags } from '@/components/ui/conversation-tags';
 import { TagSelector } from '@/components/ui/tag-selector';
 import { GeminiQuotaIndicatorCompact } from '@/components/GeminiQuotaIndicator';
-import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 interface Conversation {
   id: string;
@@ -66,7 +65,6 @@ export default function ConversationsPage() {
   console.log('[Conversations] User ID:', user?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
 
   const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
@@ -146,7 +144,6 @@ export default function ConversationsPage() {
     },
     enabled: !!user?.id,
     placeholderData: (previousData) => previousData, // Keep showing old data while loading new page
-    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
   
   // Debug: Log query state

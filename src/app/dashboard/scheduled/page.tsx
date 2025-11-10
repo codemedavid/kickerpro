@@ -28,7 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useAutoFetchStore } from '@/store/auto-fetch-store';
 
 interface ScheduledMessage {
   id: string;
@@ -54,7 +53,6 @@ export default function ScheduledMessagesPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
@@ -73,7 +71,6 @@ export default function ScheduledMessagesPage() {
   });
 
   // Fetch scheduled messages
-  // Auto-refresh when enabled (uses global auto-fetch setting)
   // Actual sending is handled by server-side cron job (/api/cron/send-scheduled)
   const { data: messages = [], isLoading } = useQuery<ScheduledMessage[]>({
     queryKey: ['scheduled-messages', user?.id],
@@ -84,7 +81,6 @@ export default function ScheduledMessagesPage() {
       return data.messages || [];
     },
     enabled: !!user?.id,
-    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Use global auto-fetch setting
   });
 
   // Delete mutation

@@ -31,7 +31,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
-import { RealtimeSyncButton } from '@/components/conversations/RealtimeSyncButton';
 
 interface FacebookPage {
   id: string;
@@ -397,18 +396,6 @@ export default function FacebookPagesPage() {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                  </div>
-
-                  {/* Realtime Sync Button with Progress */}
-                  <div className="ml-20">
-                    <RealtimeSyncButton
-                      pageId={page.id}
-                      facebookPageId={page.facebook_page_id}
-                      pageName={page.name}
-                      lastSyncedAt={page.last_synced_at}
-                      hasCheckpoint={!!page.sync_checkpoint}
-                      onSyncComplete={() => queryClient.invalidateQueries({ queryKey: ['pages'] })}
-                    />
                   </div>
                 </div>
               ))}
