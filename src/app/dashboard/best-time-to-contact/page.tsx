@@ -125,6 +125,7 @@ export default function BestTimeToContactPage() {
   const [recommendations, setRecommendations] = useState<ContactRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [computing, setComputing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('composite_score');
   const [minConfidence, setMinConfidence] = useState('0');
@@ -244,6 +245,36 @@ export default function BestTimeToContactPage() {
       toast.error('Failed to load recommendations');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSeedEvents = async () => {
+    try {
+      setSeeding(true);
+      toast.info('Generating interaction history from your conversations...');
+
+      const response = await fetch('/api/contact-timing/seed-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: false }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success(`Generated ${data.totalEventsGenerated} events for ${data.processed} contacts!`);
+        // Auto-trigger computation after seeding
+        setTimeout(() => {
+          handleComputeAll();
+        }, 1000);
+      } else {
+        toast.error(data.message || 'Failed to seed events');
+      }
+    } catch (error) {
+      console.error('Error seeding events:', error);
+      toast.error('Failed to seed events');
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -480,41 +511,62 @@ export default function BestTimeToContactPage() {
             AI-powered recommendations for optimal contact timing based on engagement patterns
           </p>
         </div>
-        <Button onClick={handleComputeAll} disabled={computing} size="lg">
-          {computing ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Computing...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Compute All
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleSeedEvents} disabled={seeding || computing} size="lg" variant="outline">
+            {seeding ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Seeding...
+              </>
+            ) : (
+              <>
+                <Clock className="mr-2 h-4 w-4" />
+                Seed Events
+              </>
+            )}
+          </Button>
+          <Button onClick={handleComputeAll} disabled={computing || seeding} size="lg">
+            {computing ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Computing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Compute All
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Warning Banner if conversations exist but no recommendations */}
       {conversationStats.totalConversations > 0 && pagination.total === 0 && !loading && (
-        <Card className="bg-yellow-50 border-yellow-200">
+        <Card className="bg-blue-50 border-blue-200">
           <CardContent className="py-4">
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 bg-yellow-100 rounded-full p-2">
-                <Clock className="h-5 w-5 text-yellow-600" />
+              <div className="flex-shrink-0 bg-blue-100 rounded-full p-2">
+                <Clock className="h-5 w-5 text-blue-600" />
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold text-yellow-900 mb-1">
-                  Action Required: Compute Contact Times
+                <h3 className="font-semibold text-blue-900 mb-1">
+                  Action Required: Setup Contact Times
                 </h3>
-                <p className="text-sm text-yellow-800 mb-3">
-                  You have {conversationStats.totalConversations} conversation(s) that haven&apos;t been processed yet. 
-                  Click &quot;Compute All&quot; to generate timing recommendations.
+                <p className="text-sm text-blue-800 mb-3">
+                  You have {conversationStats.totalConversations} conversation(s) ready for analysis. 
+                  First, generate interaction history, then compute timing recommendations.
                 </p>
-                <Button onClick={handleComputeAll} disabled={computing} size="sm">
-                  <RefreshCw className={`mr-2 h-4 w-4 ${computing ? 'animate-spin' : ''}`} />
-                  {computing ? 'Computing...' : 'Compute Now'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={handleSeedEvents} disabled={seeding || computing} size="sm" variant="default">
+                    <Clock className={`mr-2 h-4 w-4 ${seeding ? 'animate-spin' : ''}`} />
+                    {seeding ? 'Seeding...' : '1. Seed Events'}
+                  </Button>
+                  <Button onClick={handleComputeAll} disabled={computing || seeding} size="sm" variant="outline">
+                    <RefreshCw className={`mr-2 h-4 w-4 ${computing ? 'animate-spin' : ''}`} />
+                    {computing ? 'Computing...' : '2. Compute Times'}
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>

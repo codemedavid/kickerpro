@@ -252,6 +252,9 @@ export async function analyzePipelineOpportunities(
         const conversationHistory = conversation?.last_message 
           ? `Last message: ${conversation.last_message}`
           : 'No message history available.';
+        
+        console.log(`[Pipeline Analyze] 📋 Contact: ${opp.sender_name}`);
+        console.log(`[Pipeline Analyze] 💬 Conversation history:`, conversationHistory);
 
         // Step 1: Global Analysis
         const globalPrompt = `${settings.global_analysis_prompt}
@@ -279,6 +282,7 @@ Respond ONLY with a JSON object in this exact format:
         const globalResponseText = await callGeminiAPI(globalPrompt, globalSystemInstruction);
         
         const globalAnalysis: GlobalAnalysisResult = JSON.parse(globalResponseText);
+        console.log(`[Pipeline Analyze] 🌐 Global AI recommendation:`, globalAnalysis.recommended_stage, `(confidence: ${globalAnalysis.confidence})`);
 
         // Step 2: Stage-Specific Analysis
         const stageAnalyses: StageAnalysisResult[] = [];
