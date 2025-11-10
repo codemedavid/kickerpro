@@ -22,8 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook } from 'lucide-react';
+import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook, User, Activity, Target, Award } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendedWindow } from '@/types/database';
 import { useAuth } from '@/hooks/use-auth';
@@ -89,6 +96,8 @@ export default function BestTimeToContactPage() {
     offset: 0,
     has_more: false,
   });
+  const [selectedContact, setSelectedContact] = useState<ContactRecommendation | null>(null);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -435,7 +444,14 @@ export default function BestTimeToContactPage() {
                   </TableHeader>
                   <TableBody>
                     {recommendations.map((rec) => (
-                      <TableRow key={rec.id} className="cursor-pointer hover:bg-muted/50">
+                      <TableRow 
+                        key={rec.id} 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => {
+                          setSelectedContact(rec);
+                          setDetailsDialogOpen(true);
+                        }}
+                      >
                         <TableCell>
                           <div>
                             <div className="font-medium">{rec.sender_name}</div>
@@ -550,6 +566,262 @@ export default function BestTimeToContactPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Contact Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              {selectedContact?.sender_name}
+            </DialogTitle>
+            <DialogDescription>
+              Complete contact timing analysis and interaction history
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedContact && (
+            <div className="space-y-6">
+              {/* Overview Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col items-center text-center">
+                      <Activity className="h-8 w-8 mb-2 text-blue-500" />
+                      <div className="text-2xl font-bold">{selectedContact.total_attempts}</div>
+                      <div className="text-xs text-muted-foreground">Total Attempts</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col items-center text-center">
+                      <Award className="h-8 w-8 mb-2 text-green-500" />
+                      <div className="text-2xl font-bold">{selectedContact.total_successes}</div>
+                      <div className="text-xs text-muted-foreground">Successful</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col items-center text-center">
+                      <Target className="h-8 w-8 mb-2 text-orange-500" />
+                      <div className="text-2xl font-bold">{selectedContact.overall_response_rate}%</div>
+                      <div className="text-xs text-muted-foreground">Response Rate</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col items-center text-center">
+                      <TrendingUp className="h-8 w-8 mb-2 text-purple-500" />
+                      <div className="text-2xl font-bold">{(selectedContact.composite_score * 100).toFixed(0)}</div>
+                      <div className="text-xs text-muted-foreground">Priority Score</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Timezone Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <MapPin className="h-4 w-4" />
+                    Timezone Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Detected Timezone:</span>
+                      <span className="font-mono font-medium">{selectedContact.timezone}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Confidence:</span>
+                      {getTimezoneConfidenceBadge(selectedContact.timezone_confidence)}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Detection Method:</span>
+                      <Badge variant="outline">{selectedContact.timezone_source || 'Activity Pattern'}</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* All Recommended Windows */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Calendar className="h-4 w-4" />
+                    All Recommended Contact Times ({selectedContact.recommended_windows.length})
+                  </CardTitle>
+                  <CardDescription>
+                    Ordered by confidence - best times to reach this contact
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {selectedContact.recommended_windows.map((window, idx) => (
+                      <div 
+                        key={idx}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold text-sm">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <div className="font-mono font-medium">{formatWindow(window)}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {window.dow} • {window.start}:00-{window.end}:00
+                            </div>
+                          </div>
+                        </div>
+                        <Badge 
+                          variant={window.confidence >= 0.7 ? 'default' : window.confidence >= 0.5 ? 'secondary' : 'outline'}
+                          className="ml-2"
+                        >
+                          {(window.confidence * 100).toFixed(0)}%
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedContact.recommended_windows.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Clock className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p>No recommended windows available yet</p>
+                      <p className="text-sm">More interaction data needed</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Scoring Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Algorithm Scores</CardTitle>
+                  <CardDescription>
+                    How this contact is ranked and prioritized
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Confidence Score</span>
+                      <span className="font-mono">{(selectedContact.max_confidence * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-secondary rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all" 
+                        style={{ width: `${selectedContact.max_confidence * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Recency Score</span>
+                      <span className="font-mono">{(selectedContact.recency_score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-secondary rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full transition-all" 
+                        style={{ width: `${selectedContact.recency_score * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Priority Score</span>
+                      <span className="font-mono">{(selectedContact.priority_score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-secondary rounded-full h-2">
+                      <div 
+                        className="bg-orange-500 h-2 rounded-full transition-all" 
+                        style={{ width: `${selectedContact.priority_score * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Composite Score (Overall)</span>
+                      <span className="font-mono font-bold">{(selectedContact.composite_score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-secondary rounded-full h-2">
+                      <div 
+                        className="bg-purple-500 h-2 rounded-full transition-all" 
+                        style={{ width: `${selectedContact.composite_score * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Activity Timeline */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Recent Activity</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Last Positive Signal:</span>
+                    <span className="text-sm font-medium">{formatDate(selectedContact.last_positive_signal_at)}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Last Contact Attempt:</span>
+                    <span className="text-sm font-medium">{formatDate(selectedContact.last_contact_attempt_at)}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Last Computed:</span>
+                    <span className="text-sm font-medium">{formatDate(selectedContact.last_computed_at)}</span>
+                  </div>
+                  {selectedContact.cooldown_until && (
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-sm text-muted-foreground">In Cooldown Until:</span>
+                      <Badge variant="outline">{formatDate(selectedContact.cooldown_until)}</Badge>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Page Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Facebook className="h-4 w-4" />
+                    Facebook Page
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-3">
+                    {selectedContact.page_profile_picture && (
+                      <img 
+                        src={selectedContact.page_profile_picture} 
+                        alt={selectedContact.page_name}
+                        className="w-12 h-12 rounded-full"
+                      />
+                    )}
+                    <div>
+                      <div className="font-medium">{selectedContact.page_name}</div>
+                      <div className="text-sm text-muted-foreground">Contact source</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {selectedContact.notes && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Notes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{selectedContact.notes}</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
