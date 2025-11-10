@@ -623,6 +623,27 @@ export default function ConversationsPage() {
         </div>
       </div>
 
+      {/* Last Updated Info */}
+      {conversationsData && (
+        <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950">
+          <CardContent className="p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="text-blue-900 dark:text-blue-100">
+                  Data last refreshed: {isAutoFetchEnabled ? 'Auto-updating...' : 'Just now'}
+                </span>
+              </div>
+              {selectedPageId !== 'all' && (
+                <span className="text-xs text-blue-700 dark:text-blue-300">
+                  Tip: Go to Facebook Pages to sync latest conversations
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
