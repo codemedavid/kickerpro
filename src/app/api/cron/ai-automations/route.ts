@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
           // Build conversation query
           // 🔧 FIX: Use facebook_page_id instead of database id
           // Conversations store the Facebook page ID, not our database UUID
-          let conversationsQuery = supabase
+          const conversationsQuery = supabase
             .from('messenger_conversations')
             .select('*')
             .eq('user_id', rule.user_id)

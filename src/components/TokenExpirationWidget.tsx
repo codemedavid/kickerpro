@@ -619,7 +619,7 @@ export function TokenExpirationWidget() {
                     </>
                   ) : (
                     <>
-                      Countdown matches Facebook's real expiration
+                      Countdown matches Facebook&apos;s real expiration
                       <br />
                       <span className="text-white/60">Last checked: {new Date(verification.lastVerified).toLocaleTimeString()}</span>
                     </>

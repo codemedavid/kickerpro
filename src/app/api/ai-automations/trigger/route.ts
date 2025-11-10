@@ -263,7 +263,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Filter conversations based on cooldown period and max follow-ups
-        let toProcess = uniqueConversations.filter(c => {
+        const toProcess = uniqueConversations.filter(c => {
           // Check max follow-ups
         if (rule.max_follow_ups) {
             const currentCount = followUpCountMap.get(c.id) || 0;
