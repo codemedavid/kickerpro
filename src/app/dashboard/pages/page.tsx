@@ -31,7 +31,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
-import { useAutoFetchStore } from '@/store/auto-fetch-store';
 import { RealtimeSyncButton } from '@/components/conversations/RealtimeSyncButton';
 
 interface FacebookPage {
@@ -65,7 +64,6 @@ export default function FacebookPagesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const supabase = createClient();
-  const { isEnabled: isAutoFetchEnabled, intervalMs } = useAutoFetchStore();
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [availablePages, setAvailablePages] = useState<FacebookPageFromAPI[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
@@ -80,7 +78,6 @@ export default function FacebookPagesPage() {
       return response.json();
     },
     enabled: !!user?.id,
-    refetchInterval: isAutoFetchEnabled ? intervalMs : false, // Auto-fetch when enabled
   });
 
   const deleteMutation = useMutation({
@@ -335,71 +332,71 @@ export default function FacebookPagesPage() {
                   className="flex flex-col gap-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors"
                 >
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 flex-1">
-                      <Avatar className="w-16 h-16">
-                        <AvatarImage src={page.profile_picture || undefined} />
-                        <AvatarFallback className="bg-[#1877f2] text-white text-xl">
-                          {page.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
+                  <div className="flex items-center gap-4 flex-1">
+                    <Avatar className="w-16 h-16">
+                      <AvatarImage src={page.profile_picture || undefined} />
+                      <AvatarFallback className="bg-[#1877f2] text-white text-xl">
+                        {page.name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
 
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-lg">{page.name}</h3>
-                          {page.is_active ? (
-                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                              Active
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">
-                              Inactive
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          {page.category && (
-                            <span className="flex items-center gap-1">
-                              <TrendingUp className="w-4 h-4" />
-                              {page.category}
-                            </span>
-                          )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-lg">{page.name}</h3>
+                        {page.is_active ? (
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                            Active
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">
+                            Inactive
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        {page.category && (
                           <span className="flex items-center gap-1">
-                            <Users className="w-4 h-4" />
-                            {page.follower_count?.toLocaleString() || 0} followers
+                            <TrendingUp className="w-4 h-4" />
+                            {page.category}
                           </span>
-                        </div>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <Users className="w-4 h-4" />
+                          {page.follower_count?.toLocaleString() || 0} followers
+                        </span>
                       </div>
                     </div>
+                  </div>
 
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Disconnect Page?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to disconnect {page.name}? This will remove all 
+                          associated messages and data. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => deleteMutation.mutate(page.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Disconnect Page?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to disconnect {page.name}? This will remove all 
-                            associated messages and data. This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => deleteMutation.mutate(page.id)}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            Disconnect
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                          Disconnect
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   </div>
 
                   {/* Realtime Sync Button with Progress */}
