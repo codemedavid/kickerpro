@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
 
+// Disable caching for real-time data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     // Use unified authentication
@@ -24,9 +28,9 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-    // Unlimited bulk selection - use requested limit or default to 20
+    // Unlimited bulk selection - use requested limit or default to 20, cap at 10,000
     const requestedLimit = parseInt(searchParams.get('limit') || '20');
-    const limit = Math.max(1, requestedLimit); // At least 1, but no upper cap
+    const limit = Math.min(Math.max(1, requestedLimit), 10000); // 1-10,000 range
     const offset = (page - 1) * limit;
 
     console.log('[Conversations API] Request params:', {

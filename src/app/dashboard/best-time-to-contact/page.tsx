@@ -132,7 +132,7 @@ export default function BestTimeToContactPage() {
   const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [pagination, setPagination] = useState({
     total: 0,
-    limit: 50,
+    limit: 100, // Increased from 50 to 100 for better performance
     offset: 0,
     has_more: false,
   });
@@ -177,7 +177,7 @@ export default function BestTimeToContactPage() {
     } catch (error) {
       console.error('Error fetching conversation stats:', error);
     }
-  }, [selectedPageId]);
+  }, [selectedPageId, pagination.total]);
 
   const fetchRecommendations = useCallback(async () => {
     try {
@@ -222,21 +222,29 @@ export default function BestTimeToContactPage() {
   const handleComputeAll = useCallback(async () => {
     try {
       setComputing(true);
-      toast.info('Computing contact timing for all conversations. This may take a moment...');
+      toast.info('Computing contact timing for all conversations. This will process contacts in parallel batches for speed...');
       
       const params = new URLSearchParams();
       if (selectedPageId !== 'all') {
         params.set('page_id', selectedPageId);
       }
+      params.set('recompute_all', 'true');
       
-      const response = await fetch(`/api/contact-timing/compute?${params}`, {
+      const response = await fetch(`/api/contact-timing/compute`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recompute_all: true,
+        }),
       });
       
       const data = await response.json();
       
       if (data.success) {
-        toast.success(`Computed timing for ${data.conversationsComputed} conversation(s)`);
+        const duration = Math.round(data.duration_ms / 1000);
+        toast.success(`✅ Computed timing for ${data.processed} conversation(s) in ${duration} seconds`, {
+          duration: 5000,
+        });
       } else {
         toast.error(data.error || 'Failed to compute contact timing');
       }

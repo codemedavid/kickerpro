@@ -8,6 +8,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+
+// Disable caching and set longer timeout for compute operations
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const maxDuration = 300; // 5 minutes for large batch processing
 import {
   computeBestContactTimes,
   getDefaultConfig,
@@ -117,22 +122,36 @@ export async function POST(request: NextRequest) {
     const results = [];
     let processed = 0;
 
-    for (const conversation of conversations) {
-      try {
-        // Check if this contact has a manual timezone override
-        const { data: existingRec } = await supabase
-          .from('contact_timing_recommendations')
-          .select('timezone, timezone_source, timezone_confidence')
-          .eq('conversation_id', conversation.id)
-          .eq('user_id', userId)
-          .single();
+    // OPTIMIZED: Process conversations in parallel batches
+    const BATCH_SIZE = 50; // Process 50 conversations at a time
+    const batches = [];
+    for (let i = 0; i < conversations.length; i += BATCH_SIZE) {
+      batches.push(conversations.slice(i, i + BATCH_SIZE));
+    }
 
-        // Get interaction events for this contact
-        const { data: events } = await supabase
-          .from('contact_interaction_events')
-          .select('*')
-          .eq('conversation_id', conversation.id)
-          .order('event_timestamp', { ascending: false });
+    console.log(`[Compute] Processing ${conversations.length} conversations in ${batches.length} batches`);
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`[Compute] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} conversations)`);
+
+      // Process batch in parallel
+      const batchPromises = batch.map(async (conversation) => {
+        try {
+          // Check if this contact has a manual timezone override
+          const { data: existingRec } = await supabase
+            .from('contact_timing_recommendations')
+            .select('timezone, timezone_source, timezone_confidence')
+            .eq('conversation_id', conversation.id)
+            .eq('user_id', userId)
+            .single();
+
+          // Get interaction events for this contact
+          const { data: events } = await supabase
+            .from('contact_interaction_events')
+            .select('*')
+            .eq('conversation_id', conversation.id)
+            .order('event_timestamp', { ascending: false });
 
         // Transform events for algorithm
         const contactEvents: ContactEvent[] = (events || []).map((e) => ({
@@ -250,16 +269,36 @@ export async function POST(request: NextRequest) {
           await supabase.from('contact_timing_bins').insert(binInserts);
         }
 
-        processed++;
-        results.push({
-          conversation_id: conversation.id,
-          sender_name: conversation.sender_name,
-          composite_score: result.composite_score,
-          windows: result.recommended_windows.length,
-        });
-      } catch (error) {
-        console.error(`Error processing conversation ${conversation.id}:`, error);
+          return {
+            success: true,
+            conversation_id: conversation.id,
+            sender_name: conversation.sender_name,
+            composite_score: result.composite_score,
+            windows: result.recommended_windows.length,
+          };
+        } catch (error) {
+          console.error(`Error processing conversation ${conversation.id}:`, error);
+          return {
+            success: false,
+            conversation_id: conversation.id,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
+        }
+      });
+
+      // Wait for all promises in the batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Count successful and add to results
+      for (const result of batchResults) {
+        if (result.success) {
+          processed++;
+          results.push(result);
+        }
       }
+
+      // Log progress
+      console.log(`[Compute] Batch ${batchIndex + 1}/${batches.length} complete. Processed ${processed}/${conversations.length} total`);
     }
 
     // Update global segment priors

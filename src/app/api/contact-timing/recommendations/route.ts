@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
+// Disable caching for real-time data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     // Get authenticated user from cookie
@@ -23,7 +27,9 @@ export async function GET(request: NextRequest) {
 
     // Parse query parameters
     const searchParams = request.nextUrl.searchParams;
-    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    // Support bulk fetching up to 10,000 contacts
+    const requestedLimit = parseInt(searchParams.get('limit') || '50', 10);
+    const limit = Math.min(Math.max(1, requestedLimit), 10000); // 1-10,000 range
     const offset = parseInt(searchParams.get('offset') || '0', 10);
     const sortBy = searchParams.get('sort_by') || 'composite_score';
     const sortOrder = searchParams.get('sort_order') || 'desc';
@@ -31,6 +37,16 @@ export async function GET(request: NextRequest) {
     const activeOnly = searchParams.get('active_only') === 'true';
     const search = searchParams.get('search') || '';
     const pageId = searchParams.get('page_id') || null;
+
+    console.log('[Recommendations API] Fetching recommendations:', {
+      limit,
+      offset,
+      sortBy,
+      minConfidence,
+      activeOnly,
+      search: search ? 'yes' : 'no',
+      pageId: pageId || 'all'
+    });
 
     // Build query
     let query = supabase
@@ -55,26 +71,13 @@ export async function GET(request: NextRequest) {
     const now = new Date().toISOString();
     query = query.or(`cooldown_until.is.null,cooldown_until.lt.${now}`);
 
-    // Filter by page if specified
+    // Filter by page if specified - OPTIMIZED for bulk
     if (pageId) {
-      // Get conversation IDs for this page
-      const { data: pageConvs } = await supabase
-        .from('messenger_conversations')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('page_id', pageId);
-      
-      const pageConvIds = (pageConvs || []).map(c => c.id);
-      if (pageConvIds.length > 0) {
-        query = query.in('conversation_id', pageConvIds);
-      } else {
-        // No conversations for this page, return empty
-        return NextResponse.json({
-          success: true,
-          data: [],
-          pagination: { total: 0, limit, offset, has_more: false },
-        });
-      }
+      // Use a more efficient subquery approach
+      query = query.filter('conversation_id', 'in', `(
+        SELECT id FROM messenger_conversations 
+        WHERE user_id = '${userId}' AND page_id = '${pageId}'
+      )`);
     }
 
     // Sorting
@@ -100,28 +103,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: queryError.message }, { status: 500 });
     }
 
-    // Fetch page information for each conversation
-    const conversationIds = (recommendations || []).map(r => r.conversation_id);
-    
-    const { data: conversations } = await supabase
-      .from('messenger_conversations')
-      .select('id, page_id')
-      .in('id', conversationIds);
+    // Fetch page information for each conversation - OPTIMIZED
+    // Only fetch if we have recommendations
+    let conversationToPage = new Map();
+    let pageDetails = new Map();
 
-    // Fetch page details
-    const pageIds = [...new Set((conversations || []).map(c => c.page_id))];
-    const { data: pages } = await supabase
-      .from('facebook_pages')
-      .select('facebook_page_id, name, profile_picture')
-      .in('facebook_page_id', pageIds);
+    if (recommendations && recommendations.length > 0) {
+      const conversationIds = recommendations.map(r => r.conversation_id);
+      
+      // Batch fetch in chunks if more than 1000 to avoid query limits
+      const CHUNK_SIZE = 1000;
+      const chunks = [];
+      for (let i = 0; i < conversationIds.length; i += CHUNK_SIZE) {
+        chunks.push(conversationIds.slice(i, i + CHUNK_SIZE));
+      }
 
-    // Create lookup maps
-    const conversationToPage = new Map(
-      (conversations || []).map(c => [c.id, c.page_id])
-    );
-    const pageDetails = new Map(
-      (pages || []).map(p => [p.facebook_page_id, p])
-    );
+      const allConversations = [];
+      for (const chunk of chunks) {
+        const { data: conversations } = await supabase
+          .from('messenger_conversations')
+          .select('id, page_id')
+          .in('id', chunk);
+        if (conversations) {
+          allConversations.push(...conversations);
+        }
+      }
+
+      // Fetch page details
+      const pageIds = [...new Set(allConversations.map(c => c.page_id))];
+      const { data: pages } = await supabase
+        .from('facebook_pages')
+        .select('facebook_page_id, name, profile_picture')
+        .in('facebook_page_id', pageIds);
+
+      // Create lookup maps
+      conversationToPage = new Map(
+        allConversations.map(c => [c.id, c.page_id])
+      );
+      pageDetails = new Map(
+        (pages || []).map(p => [p.facebook_page_id, p])
+      );
+    }
 
     // Format response
     const formatted = (recommendations || []).map((rec) => {
