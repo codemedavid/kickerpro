@@ -55,7 +55,7 @@ class SupabasePool {
         global: {
           headers: {
             'x-connection-pooled': 'true'
-          }
+          } as Record<string, string>
         }
       }),
       inUse: false,

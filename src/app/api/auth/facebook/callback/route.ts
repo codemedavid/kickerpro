@@ -121,8 +121,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 6: Fetch and store user's Facebook Pages
+    let pagesCount = 0;
     try {
       const pagesData = await getUserPages(longLivedToken.access_token);
+      pagesCount = pagesData.data?.length || 0;
       
       if (pagesData.data && pagesData.data.length > 0) {
         // Delete old pages for this user (they'll be re-added)
