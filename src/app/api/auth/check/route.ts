@@ -15,6 +15,7 @@ export async function GET() {
     const fbUserId = cookieStore.get('fb-user-id');
     const fbAuthUser = cookieStore.get('fb-auth-user');
     const fbAccessToken = cookieStore.get('fb-access-token');
+    const fbTokenExpires = cookieStore.get('fb-token-expires');
     
     // Get all cookies for debugging
     const allCookies = cookieStore.getAll();
@@ -44,6 +45,14 @@ export async function GET() {
         } : {
           present: false,
           message: 'Cookie not found - user not logged in'
+        },
+        'fb-token-expires': fbTokenExpires ? {
+          value: fbTokenExpires.value,
+          present: true,
+          expiresAt: new Date(parseInt(fbTokenExpires.value)).toISOString()
+        } : {
+          present: false,
+          message: 'Token expiration not set'
         }
       },
       totalCookies: allCookies.length,

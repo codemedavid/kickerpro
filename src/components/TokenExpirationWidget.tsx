@@ -134,8 +134,32 @@ export function TokenExpirationWidget() {
             // Update last known expiration
             lastKnownExpiresAt.current = cachedExpiresAt;
           } else {
-            // Fallback: Set to 60 days from now, but only once
-            cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+            // Cookie missing - fetch real expiration from API
+            console.warn('[TokenWidget] ⚠️ fb-token-expires cookie not found - fetching from API...');
+            try {
+              const verifyResponse = await fetch('/api/auth/verify-token');
+              if (verifyResponse.ok) {
+                const verifyData = await verifyResponse.json();
+                if (verifyData.expiresAt) {
+                  cachedExpiresAt = verifyData.expiresAt;
+                  
+                  // Set the missing cookie for future page loads
+                  document.cookie = `fb-token-expires=${verifyData.expiresAt}; path=/; max-age=${verifyData.expiresIn}`;
+                  
+                  console.log('[TokenWidget] ✅ Fetched real expiration from API:', new Date(verifyData.expiresAt).toLocaleString());
+                  console.log('[TokenWidget] ✅ Set cookie for future page loads');
+                } else {
+                  // Ultimate fallback if API also doesn't have it
+                  console.warn('[TokenWidget] ⚠️ API also missing expiration - using 60 day estimate');
+                  cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+                }
+              } else {
+                cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+              }
+            } catch (error) {
+              console.error('[TokenWidget] Error fetching expiration from API:', error);
+              cachedExpiresAt = Date.now() + (60 * 24 * 60 * 60 * 1000);
+            }
           }
 
           setTokenData({

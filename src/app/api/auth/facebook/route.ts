@@ -230,6 +230,7 @@ export async function POST(request: NextRequest) {
       tokenExpiresInDays: tokenExpiresIn ? Math.floor(tokenExpiresIn / 86400) : null
     });
 
+    // Set user ID cookie
     response.cookies.set('fb-user-id', userId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -238,7 +239,29 @@ export async function POST(request: NextRequest) {
       path: '/'
     });
 
-    console.log('[Facebook Auth] Cookie set with expiration:', new Date(Date.now() + cookieMaxAge * 1000).toISOString());
+    // Set token expiration cookie for frontend timer widget
+    // This cookie is readable by JavaScript so the UI can show accurate countdown
+    if (tokenExpiresAt) {
+      response.cookies.set('fb-token-expires', tokenExpiresAt.getTime().toString(), {
+        httpOnly: false, // Must be readable by frontend
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: cookieMaxAge,
+        path: '/'
+      });
+      console.log('[Facebook Auth] Token expiration cookie set:', tokenExpiresAt.getTime());
+    }
+
+    // Set access token cookie for frontend (optional, for diagnostics)
+    response.cookies.set('fb-access-token', finalAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: cookieMaxAge,
+      path: '/'
+    });
+
+    console.log('[Facebook Auth] Cookies set with expiration:', new Date(Date.now() + cookieMaxAge * 1000).toISOString());
     console.log('[Facebook Auth] Token expires at:', tokenExpiresAt?.toISOString());
     console.log('[Facebook Auth] Cookie expires in:', Math.floor(cookieMaxAge / 86400), 'days');
 
