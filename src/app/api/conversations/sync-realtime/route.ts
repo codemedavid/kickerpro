@@ -133,8 +133,10 @@ export async function POST(request: NextRequest) {
           eventsCreated: checkpoint?.eventsCreated || 0,
         });
 
-        // Fetch conversations one by one from Facebook
-        let nextUrl = `https://graph.facebook.com/v18.0/${page.facebook_page_id}/conversations?fields=id,participants,updated_time,messages{message,created_time,from}&limit=1&access_token=${page.access_token}`;
+        // Fetch conversations in batches from Facebook (then display one by one)
+        // Using limit=25 is much faster than limit=1 while still showing individual progress
+        const BATCH_SIZE = 25;
+        let nextUrl = `https://graph.facebook.com/v18.0/${page.facebook_page_id}/conversations?fields=id,participants,updated_time,messages.limit(25){message,created_time,from},senders&limit=${BATCH_SIZE}&access_token=${page.access_token}`;
         
         if (startAfter) {
           nextUrl += `&after=${startAfter}`;
@@ -142,6 +144,7 @@ export async function POST(request: NextRequest) {
 
         const MAX_SYNC_DURATION = 270000; // 4.5 minutes
         let conversationsFetched = 0;
+        let batchNumber = 0;
 
         while (nextUrl) {
           // Check timeout
@@ -257,15 +260,21 @@ export async function POST(request: NextRequest) {
           }
 
           const conversations = data.data || [];
+          batchNumber++;
           
-          // Update total if we have summary data
-          if (data.summary && data.summary.total_count) {
-            totalConversations = data.summary.total_count;
-          } else if (conversations.length > 0) {
-            totalConversations = Math.max(totalConversations, currentCount + 1);
+          // Estimate total conversations from paging info
+          // Facebook doesn't give exact count, so we estimate based on batches
+          if (!totalConversations && conversations.length === BATCH_SIZE) {
+            // Still more to fetch - estimate conservatively
+            totalConversations = currentCount + (BATCH_SIZE * 10); // Estimate 10 more batches
+          } else if (conversations.length < BATCH_SIZE) {
+            // Last batch - we know the total now
+            totalConversations = currentCount + conversations.length;
           }
 
-          // Process the single conversation
+          console.log(`[Sync Realtime] Batch #${batchNumber}: ${conversations.length} conversations`);
+
+          // Process each conversation individually (for UI display)
           for (const conv of conversations) {
             conversationsFetched++;
             currentCount++;
@@ -398,8 +407,15 @@ export async function POST(request: NextRequest) {
           // Get next URL for pagination
           nextUrl = data.paging?.next || null;
 
-          // Small delay to avoid overwhelming the client
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Small delay between batches (not between individual conversations)
+          if (nextUrl) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+
+        // If we completed without timeout, update total to actual count
+        if (!nextUrl) {
+          totalConversations = currentCount;
         }
 
         // Sync complete - clear checkpoint
