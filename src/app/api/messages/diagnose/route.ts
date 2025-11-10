@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
+// Force dynamic rendering - this is an API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Comprehensive diagnostics for message sending issues
  * GET /api/messages/diagnose?messageId=xxx

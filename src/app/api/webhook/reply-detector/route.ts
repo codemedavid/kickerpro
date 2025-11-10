@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
+// Force dynamic rendering - this is an API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Webhook handler for detecting contact replies
  * This processes Facebook webhook events to detect when contacts reply

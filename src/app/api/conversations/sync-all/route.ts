@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { batchFetchConversations } from '@/lib/facebook/batch-api';
 
+// Force dynamic rendering - this is an API route
+export const dynamic = 'force-dynamic';
+
 // Sync all pages using Facebook Batch API for maximum speed
 export async function POST(request: NextRequest) {
   try {

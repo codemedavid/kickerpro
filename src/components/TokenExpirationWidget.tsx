@@ -93,8 +93,12 @@ export function TokenExpirationWidget() {
         const response = await fetch('/api/auth/check');
         const data = await response.json();
         
-        if (data.authenticated && data.cookies?.['fb-access-token']) {
+        if (data.authenticated) {
           // Get the cookie to check expiration
+          console.log('[TokenWidget] 🔍 Checking for fb-token-expires cookie...');
+          console.log('[TokenWidget] All cookies:', document.cookie);
+          console.log('[TokenWidget] Auth check response:', data);
+          
           const tokenCookie = document.cookie
             .split('; ')
             .find(row => row.startsWith('fb-token-expires='));
@@ -102,6 +106,9 @@ export function TokenExpirationWidget() {
           if (tokenCookie) {
             // If we have an explicit expiration cookie, use it
             cachedExpiresAt = parseInt(tokenCookie.split('=')[1]);
+            console.log('[TokenWidget] ✅ Found fb-token-expires cookie:', tokenCookie);
+            console.log('[TokenWidget] ✅ Parsed expiration:', new Date(cachedExpiresAt).toLocaleString());
+            console.log('[TokenWidget] ✅ Days until expiry:', Math.floor((cachedExpiresAt - Date.now()) / (1000 * 60 * 60 * 24)));
             
             // Check if token was recently refreshed
             if (lastKnownExpiresAt.current && cachedExpiresAt > lastKnownExpiresAt.current) {
@@ -162,10 +169,13 @@ export function TokenExpirationWidget() {
             }
           }
 
-          setTokenData({
-            expiresAt: cachedExpiresAt,
-            userName: data.user?.name
-          });
+          // Only set token data if we have a valid expiration time
+          if (cachedExpiresAt !== null) {
+            setTokenData({
+              expiresAt: cachedExpiresAt,
+              userName: data.user?.name
+            });
+          }
           
           // Auto-verify with Facebook on initial load to ensure accuracy
           if (!hasAutoVerified) {

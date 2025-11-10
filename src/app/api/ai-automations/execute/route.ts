@@ -3,6 +3,9 @@ import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { openRouterService } from '@/lib/ai/openrouter';
 
+// Force dynamic rendering - this is an API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Execute AI automations - Check for conversations that match automation rules
  * and generate/send AI messages
