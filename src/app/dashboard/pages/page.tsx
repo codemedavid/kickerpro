@@ -32,7 +32,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import { useAutoFetchStore } from '@/store/auto-fetch-store';
-import { SyncButton } from '@/components/conversations/SyncButton';
+import { RealtimeSyncButton } from '@/components/conversations/RealtimeSyncButton';
 
 interface FacebookPage {
   id: string;
@@ -44,6 +44,7 @@ interface FacebookPage {
   is_active: boolean;
   created_at: string;
   last_synced_at: string | null;
+  sync_checkpoint: string | null;
 }
 
 interface FacebookPageFromAPI {
@@ -401,13 +402,14 @@ export default function FacebookPagesPage() {
                     </AlertDialog>
                   </div>
 
-                  {/* Sync Button with Stats */}
+                  {/* Realtime Sync Button with Progress */}
                   <div className="ml-20">
-                    <SyncButton
+                    <RealtimeSyncButton
                       pageId={page.id}
                       facebookPageId={page.facebook_page_id}
                       pageName={page.name}
                       lastSyncedAt={page.last_synced_at}
+                      hasCheckpoint={!!page.sync_checkpoint}
                       onSyncComplete={() => queryClient.invalidateQueries({ queryKey: ['pages'] })}
                     />
                   </div>
