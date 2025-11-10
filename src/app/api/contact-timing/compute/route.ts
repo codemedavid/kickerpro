@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 import {
   computeBestContactTimes,
   getDefaultConfig,
@@ -18,17 +19,15 @@ import { inferBestTimezone } from '@/lib/contact-timing/timezone';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    // Get authenticated user from cookie
+    const cookieStore = await cookies();
+    const userId = cookieStore.get('fb-auth-user')?.value;
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const supabase = await createClient();
 
     const body = await request.json();
     const { conversation_ids, recompute_all = false } = body;
@@ -40,7 +39,7 @@ export async function POST(request: NextRequest) {
     const { data: userConfig } = await supabase
       .from('contact_timing_config')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .single();
 
     if (userConfig) {
@@ -68,7 +67,7 @@ export async function POST(request: NextRequest) {
       // Create default config
       config = getDefaultConfig();
       await supabase.from('contact_timing_config').insert({
-        user_id: user.id,
+        user_id: userId,
         ...config,
       });
     }
@@ -77,7 +76,7 @@ export async function POST(request: NextRequest) {
     const { data: segmentData } = await supabase
       .from('contact_timing_segment_priors')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('segment_type', 'global');
 
     const segmentPriors = new Map();
@@ -96,7 +95,7 @@ export async function POST(request: NextRequest) {
     let conversationsQuery = supabase
       .from('messenger_conversations')
       .select('*')
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
 
     if (!recompute_all && conversation_ids && Array.isArray(conversation_ids)) {
       conversationsQuery = conversationsQuery.in('id', conversation_ids);
@@ -174,7 +173,7 @@ export async function POST(request: NextRequest) {
 
         // Upsert recommendation
         const recommendationData = {
-          user_id: user.id,
+          user_id: userId,
           conversation_id: conversation.id,
           sender_id: conversation.sender_id,
           sender_name: conversation.sender_name,
@@ -210,7 +209,7 @@ export async function POST(request: NextRequest) {
         const binInserts = result.bins
           .filter((b) => b.trials_count > 0 || b.success_count > 0)
           .map((bin) => ({
-            user_id: user.id,
+            user_id: userId,
             conversation_id: conversation.id,
             sender_id: conversation.sender_id,
             hour_of_week: bin.hour_of_week,
@@ -244,7 +243,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update global segment priors
-    await updateSegmentPriors(supabase, user.id, config);
+    await updateSegmentPriors(supabase, userId, config);
 
     return NextResponse.json({
       success: true,
