@@ -34,6 +34,7 @@ import { TagFilter } from '@/components/ui/tag-filter';
 import { ConversationTags } from '@/components/ui/conversation-tags';
 import { TagSelector } from '@/components/ui/tag-selector';
 import { GeminiQuotaIndicatorCompact } from '@/components/GeminiQuotaIndicator';
+import { ManualSyncButton } from '@/components/conversations/ManualSyncButton';
 
 interface Conversation {
   id: string;
@@ -78,6 +79,11 @@ export default function ConversationsPage() {
   const [bulkTagAction, setBulkTagAction] = useState<'assign' | 'remove' | 'replace'>('assign');
   const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
   const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
+
+  // Compute selected page object
+  const selectedPage = selectedPageId === 'all' 
+    ? null 
+    : pages.find(p => p.facebook_page_id === selectedPageId);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -579,6 +585,22 @@ export default function ConversationsPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {/* Manual Sync Button - Always visible when a page is selected */}
+          {selectedPageId !== 'all' && selectedPage && (
+            <ManualSyncButton
+              pageId={selectedPage.id}
+              facebookPageId={selectedPage.facebook_page_id}
+              pageName={selectedPage.name}
+              onSyncComplete={() => {
+                // Refresh conversations after sync
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+              }}
+              variant="outline"
+              size="default"
+              showProgress={true}
+            />
+          )}
+          
           {selectedContacts.size > 0 && (
             <>
               <Button 
@@ -631,9 +653,13 @@ export default function ConversationsPage() {
                   Data last refreshed: Just now
                 </span>
               </div>
-              {selectedPageId !== 'all' && (
+              {selectedPageId !== 'all' ? (
                 <span className="text-xs text-blue-700 dark:text-blue-300">
-                  Tip: Go to Facebook Pages to sync latest conversations
+                  💡 Use the Sync button above to fetch the latest conversations
+                </span>
+              ) : (
+                <span className="text-xs text-blue-700 dark:text-blue-300">
+                  Select a specific page to enable manual sync
                 </span>
               )}
             </div>
