@@ -49,6 +49,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CSS } from '@dnd-kit/utilities';
+import { GeminiQuotaIndicator } from '@/components/GeminiQuotaIndicator';
 
 interface PipelineStage {
   id: string;
@@ -767,7 +768,8 @@ export default function PipelinePage() {
             AI-powered contact stage management
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-start gap-3">
+          <GeminiQuotaIndicator />
           <Button
             variant="outline"
             onClick={() => {

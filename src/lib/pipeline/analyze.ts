@@ -80,7 +80,16 @@ async function callGeminiAPI(prompt: string, systemInstruction: string): Promise
         // If rate limit error, try next key
         if (response.status === 429 || errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
           lastError = new Error(`Rate limit: ${errorMessage}`);
-          console.warn(`[Pipeline Analyze] Key #${currentKeyIndex} rate limited, trying next key...`);
+          const rateLimitedKeyIndex = (currentKeyIndex - 1 + GEMINI_API_KEYS.length) % GEMINI_API_KEYS.length;
+          console.warn(`[Pipeline Analyze] Key #${rateLimitedKeyIndex} rate limited, trying next key...`);
+          
+          // Report rate limit to quota tracker (fire and forget)
+          fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/pipeline/quota-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key_index: rateLimitedKeyIndex })
+          }).catch(() => {}); // Ignore errors to not block the main flow
+          
           continue;
         }
         

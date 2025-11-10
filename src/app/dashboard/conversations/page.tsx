@@ -35,6 +35,7 @@ import { TagFilter } from '@/components/ui/tag-filter';
 import { ConversationTags } from '@/components/ui/conversation-tags';
 import { TagSelector } from '@/components/ui/tag-selector';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
+import { GeminiQuotaIndicatorCompact } from '@/components/GeminiQuotaIndicator';
 
 interface Conversation {
   id: string;
@@ -814,23 +815,26 @@ export default function ConversationsPage() {
                 <TagIcon className="mr-2 w-4 h-4" />
                 Tag {selectedContacts.size} Selected
               </Button>
-              <Button 
-                onClick={handleAddToPipeline}
-                disabled={isAddingToPipeline}
-                className="bg-purple-600 hover:bg-purple-700"
-              >
-                {isAddingToPipeline ? (
-                  <>
-                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    Adding...
-                  </>
-                ) : (
-                  <>
-                    <GitBranch className="mr-2 w-4 h-4" />
-                    Add to Pipeline
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                <GeminiQuotaIndicatorCompact />
+                <Button 
+                  onClick={handleAddToPipeline}
+                  disabled={isAddingToPipeline}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  {isAddingToPipeline ? (
+                    <>
+                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <GitBranch className="mr-2 w-4 h-4" />
+                      Add to Pipeline
+                    </>
+                  )}
+                </Button>
+              </div>
             </>
           )}
           <Button 
