@@ -6,26 +6,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getUserPages, debugToken } from '@/lib/facebook/token-manager';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    // Use cookie-based authentication (matches app's auth pattern)
+    const cookieStore = await cookies();
+    const userId = cookieStore.get('fb-user-id')?.value;
     
-    // Get current authenticated user
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    
-    if (!authUser) {
+    if (!userId) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { success: false, error: 'Unauthorized - Please log in with Facebook' },
         { status: 401 }
       );
     }
+
+    const supabase = await createClient();
 
     // Get user's Facebook token from database (with expiration)
     const { data: user, error: fetchError } = await supabase
       .from('users')
       .select('facebook_access_token, facebook_token_expires_at')
-      .eq('id', authUser.id)
+      .eq('id', userId)
       .single();
 
     if (fetchError || !user) {
@@ -76,7 +78,7 @@ export async function GET(request: NextRequest) {
         }
         
         return {
-          user_id: authUser.id,
+          user_id: userId,
           facebook_page_id: page.id,
           name: page.name,
           category: page.category,
@@ -137,17 +139,18 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    // Use cookie-based authentication (matches app's auth pattern)
+    const cookieStore = await cookies();
+    const userId = cookieStore.get('fb-user-id')?.value;
     
-    // Get current authenticated user
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    
-    if (!authUser) {
+    if (!userId) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - Please log in with Facebook' },
         { status: 401 }
       );
     }
+
+    const supabase = await createClient();
 
     const body = await request.json();
     const { pageId, action } = body;
@@ -166,7 +169,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .select('is_active')
         .eq('facebook_page_id', pageId)
-        .eq('user_id', authUser.id)
+        .eq('user_id', userId)
         .single();
 
       if (fetchError || !page) {
@@ -180,7 +183,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .update({ is_active: !page.is_active })
         .eq('facebook_page_id', pageId)
-        .eq('user_id', authUser.id);
+        .eq('user_id', userId);
 
       if (updateError) {
         throw updateError;
@@ -198,7 +201,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .delete()
         .eq('facebook_page_id', pageId)
-        .eq('user_id', authUser.id);
+        .eq('user_id', userId);
 
       if (deleteError) {
         throw deleteError;
