@@ -59,9 +59,10 @@ export async function POST(request: NextRequest) {
         let insertedCount = 0;
         let updatedCount = 0;
         let totalConversations = 0;
+        let totalEventsCreated = 0;
         let batchNumber = 0;
         
-        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time&limit=50&access_token=${page.access_token}`;
+        let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=50&access_token=${page.access_token}`;
 
         // Fetch and process conversations with real-time updates
         while (nextUrl) {
@@ -130,27 +131,69 @@ export async function POST(request: NextRequest) {
                 if (upsertedRows && upsertedRows.length > 0) {
                   for (const row of upsertedRows) {
                     syncedConversationIds.add(row.id);
-                    const isNew = row.created_at === row.updated_at;
-                    if (isNew) {
+                    const isNewConversation = row.created_at === row.updated_at;
+                    
+                    if (isNewConversation) {
                       insertedCount++;
                       
-                      // Create initial interaction event for new conversations
-                      // This provides data for Best Time to Contact algorithm
-                      await supabase.from('contact_interaction_events').insert({
-                        user_id: userId,
-                        conversation_id: row.id,
-                        sender_id: participant.id,
-                        event_type: 'message_replied',
-                        event_timestamp: lastTime,
-                        channel: 'messenger',
-                        is_outbound: false,
-                        is_success: true,
-                        success_weight: 1.0,
-                        metadata: {
-                          source: 'initial_sync',
-                          synced_at: new Date().toISOString()
-                        }
-                      }).select();
+                      // Create interaction events from actual message history
+                      const messages = conv.messages?.data || [];
+                      const eventsToInsert = [];
+                      
+                      // Process up to 25 most recent messages to establish activity patterns
+                      const recentMessages = messages.slice(0, 25);
+                      
+                      for (const msg of recentMessages) {
+                        if (!msg.created_time) continue;
+                        
+                        const isFromPage = msg.from?.id === effectiveFacebookPageId;
+                        const isFromContact = msg.from?.id === participant.id;
+                        
+                        // Skip messages from unknown participants
+                        if (!isFromPage && !isFromContact) continue;
+                        
+                        eventsToInsert.push({
+                          user_id: userId,
+                          conversation_id: row.id,
+                          sender_id: participant.id,
+                          event_type: isFromContact ? 'message_replied' : 'message_sent',
+                          event_timestamp: msg.created_time,
+                          channel: 'messenger',
+                          is_outbound: isFromPage,
+                          is_success: isFromContact, // Contact replied = success
+                          success_weight: isFromContact ? 1.0 : 0.0,
+                          metadata: {
+                            source: 'initial_sync',
+                            message_id: msg.id,
+                            synced_at: new Date().toISOString()
+                          }
+                        });
+                      }
+                      
+                      // If no messages, create one default event
+                      if (eventsToInsert.length === 0) {
+                        eventsToInsert.push({
+                          user_id: userId,
+                          conversation_id: row.id,
+                          sender_id: participant.id,
+                          event_type: 'message_replied',
+                          event_timestamp: lastTime,
+                          channel: 'messenger',
+                          is_outbound: false,
+                          is_success: true,
+                          success_weight: 1.0,
+                          metadata: {
+                            source: 'initial_sync_fallback',
+                            synced_at: new Date().toISOString()
+                          }
+                        });
+                      }
+                      
+                      // Bulk insert events
+                      if (eventsToInsert.length > 0) {
+                        await supabase.from('contact_interaction_events').insert(eventsToInsert);
+                        totalEventsCreated += eventsToInsert.length;
+                      }
                     } else {
                       updatedCount++;
                     }
@@ -194,6 +237,8 @@ export async function POST(request: NextRequest) {
           updated: updatedCount,
           total: insertedCount + updatedCount,
           totalConversationsFetched: totalConversations,
+          eventsCreated: totalEventsCreated,
+          computeContactTiming: insertedCount > 0,
           batches: batchNumber
         });
 
