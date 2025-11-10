@@ -565,18 +565,8 @@ export default function ConversationsPage() {
 
   // Use total from pagination, not just current page
   const activeCount = conversations.filter(c => c.conversation_status === 'active').length;
-  const isSyncAffectingSelectedPage =
-    syncInProgress &&
-    syncTargetPageId !== null &&
-    (selectedPageId === 'all' || selectedPageId === syncTargetPageId);
-
-  const syncTotalProgress = syncBaselineCount + realtimeStats.inserts;
-  const syncTargetPageName = syncTargetPageId ? getPageName(syncTargetPageId) : null;
-
-  const totalCount = isSyncAffectingSelectedPage ? syncTotalProgress : pagination.total;
-  const activeCountDisplay = isSyncAffectingSelectedPage
-    ? activeCount + realtimeStats.inserts
-    : activeCount;
+  const totalCount = pagination.total;
+  const activeCountDisplay = activeCount;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
