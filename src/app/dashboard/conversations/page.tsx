@@ -80,11 +80,6 @@ export default function ConversationsPage() {
   const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
   const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
 
-  // Compute selected page object
-  const selectedPage = selectedPageId === 'all' 
-    ? null 
-    : pages.find(p => p.facebook_page_id === selectedPageId);
-
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
     queryKey: ['pages', user?.id],
@@ -95,6 +90,11 @@ export default function ConversationsPage() {
     },
     enabled: !!user?.id
   });
+
+  // Compute selected page object
+  const selectedPage = selectedPageId === 'all' 
+    ? null 
+    : pages.find(p => p.facebook_page_id === selectedPageId);
 
   // Fetch user's tags
   useQuery<{
