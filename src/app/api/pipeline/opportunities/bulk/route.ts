@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { analyzePipelineOpportunities } from '@/lib/pipeline/analyze';
+import { analyzeWithKeywordMatching } from '@/lib/pipeline/analyze-test-mode';
 
 /**
  * POST /api/pipeline/opportunities/bulk
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
       try {
         const opportunityIds = insertedOpps.map(opp => opp.id);
         
-        // Call the analyze function directly
+        // Try AI analysis first
         const analyzeResult = await analyzePipelineOpportunities(
           opportunityIds,
           userId,
@@ -169,14 +170,65 @@ export async function POST(request: NextRequest) {
             skipped: existingConvIds.size,
             opportunities: insertedOpps,
             ai_analyzed: true,
+            analysis_method: 'gemini_ai',
             analysis_results: analyzeResult.results
           });
         } else {
           console.warn('[Pipeline Bulk API] AI analysis failed or not configured:', analyzeResult.error);
+          
+          // If API quota exceeded, fall back to test mode (keyword matching)
+          if (analyzeResult.error?.includes('quota') || analyzeResult.error?.includes('rate limit')) {
+            console.log('[Pipeline Bulk API] 🧪 Falling back to TEST MODE (keyword matching)');
+            
+            const testResult = await analyzeWithKeywordMatching(opportunityIds, userId);
+            
+            if (testResult.success && testResult.analyzed > 0) {
+              console.log('[Pipeline Bulk API] ✅ Test mode analysis completed:', testResult.analyzed, 'contacts analyzed');
+              
+              return NextResponse.json({
+                success: true,
+                message: `Added ${opportunitiesToInsert.length} contact(s) to pipeline and sorted using keyword matching (test mode)`,
+                added: opportunitiesToInsert.length,
+                skipped: existingConvIds.size,
+                opportunities: insertedOpps,
+                ai_analyzed: true,
+                analysis_method: 'keyword_matching',
+                test_mode: true,
+                analysis_results: testResult.results
+              });
+            }
+          }
+          
           console.log('[Pipeline Bulk API] Contacts added to Unmatched stage');
         }
       } catch (error) {
         console.error('[Pipeline Bulk API] Error during automatic AI analysis:', error);
+        
+        // Try test mode as final fallback
+        try {
+          console.log('[Pipeline Bulk API] 🧪 Attempting test mode fallback');
+          const opportunityIds = insertedOpps.map(opp => opp.id);
+          const testResult = await analyzeWithKeywordMatching(opportunityIds, userId);
+          
+          if (testResult.success && testResult.analyzed > 0) {
+            console.log('[Pipeline Bulk API] ✅ Test mode fallback successful');
+            
+            return NextResponse.json({
+              success: true,
+              message: `Added ${opportunitiesToInsert.length} contact(s) to pipeline and sorted using keyword matching (test mode)`,
+              added: opportunitiesToInsert.length,
+              skipped: existingConvIds.size,
+              opportunities: insertedOpps,
+              ai_analyzed: true,
+              analysis_method: 'keyword_matching',
+              test_mode: true,
+              analysis_results: testResult.results
+            });
+          }
+        } catch (testError) {
+          console.error('[Pipeline Bulk API] Test mode also failed:', testError);
+        }
+        
         // Continue without AI analysis - contacts will remain in Unmatched stage
       }
     }

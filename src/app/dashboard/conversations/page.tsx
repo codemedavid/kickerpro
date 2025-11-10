@@ -721,12 +721,25 @@ export default function ConversationsPage() {
       const result = await pipelineResponse.json();
 
       // Show appropriate message based on whether AI analysis ran
-      const description = result.ai_analyzed
-        ? `${result.added} contact${result.added !== 1 ? 's' : ''} added and automatically sorted to appropriate stages${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}!`
-        : `${result.added} contact${result.added !== 1 ? 's' : ''} added to pipeline${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}. Set up pipeline settings to enable automatic stage sorting.`;
+      let description: string;
+      let title: string;
+      
+      if (result.ai_analyzed && result.test_mode) {
+        // Test mode (keyword matching) was used
+        title = "🧪 Added & Sorted (Test Mode)";
+        description = `${result.added} contact${result.added !== 1 ? 's' : ''} added and sorted using keyword matching${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}. Test mode used due to API quota. Results will be similar to AI sorting!`;
+      } else if (result.ai_analyzed) {
+        // Full AI analysis was used
+        title = "✨ Added & Sorted!";
+        description = `${result.added} contact${result.added !== 1 ? 's' : ''} added and automatically sorted to appropriate stages${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}!`;
+      } else {
+        // No analysis ran
+        title = "Added to Pipeline";
+        description = `${result.added} contact${result.added !== 1 ? 's' : ''} added to pipeline${result.skipped > 0 ? ` (${result.skipped} already in pipeline)` : ''}. Set up pipeline settings to enable automatic stage sorting.`;
+      }
 
       toast({
-        title: result.ai_analyzed ? "✨ Added & Sorted!" : "Added to Pipeline",
+        title,
         description,
         duration: result.ai_analyzed ? 5000 : 3000,
       });
