@@ -101,16 +101,48 @@ export async function GET(request: NextRequest) {
       query = query.lte('last_message_time', endDateTime.toISOString());
     }
 
-    // Apply include tags filter (conversations that have ANY of these tags)
-    if (includeTags.length > 0) {
-      const { data: includedConversationIds } = await supabase
-        .from('conversation_tags')
-        .select('conversation_id')
-        .in('tag_id', includeTags);
+    // Optimize tag filtering - fetch both include and exclude in parallel
+    let includedConversationIds: string[] | null = null;
+    let excludedConversationIds: string[] | null = null;
 
+    if (includeTags.length > 0 || excludeTags.length > 0) {
+      const tagQueries = [];
+      
+      if (includeTags.length > 0) {
+        tagQueries.push(
+          supabase
+            .from('conversation_tags')
+            .select('conversation_id')
+            .in('tag_id', includeTags)
+            .then(({ data }) => ({ type: 'include', data }))
+        );
+      }
+      
+      if (excludeTags.length > 0) {
+        tagQueries.push(
+          supabase
+            .from('conversation_tags')
+            .select('conversation_id')
+            .in('tag_id', excludeTags)
+            .then(({ data }) => ({ type: 'exclude', data }))
+        );
+      }
+
+      const tagResults = await Promise.all(tagQueries);
+      
+      for (const result of tagResults) {
+        if (result.type === 'include' && result.data) {
+          includedConversationIds = result.data.map((ct: { conversation_id: string }) => ct.conversation_id);
+        } else if (result.type === 'exclude' && result.data) {
+          excludedConversationIds = result.data.map((ct: { conversation_id: string }) => ct.conversation_id);
+        }
+      }
+    }
+
+    // Apply include tags filter
+    if (includeTags.length > 0) {
       if (includedConversationIds && includedConversationIds.length > 0) {
-        const conversationIds = includedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
-        query = query.in('id', conversationIds);
+        query = query.in('id', includedConversationIds);
       } else {
         // No conversations have these tags, return empty result
         return NextResponse.json({
@@ -119,23 +151,17 @@ export async function GET(request: NextRequest) {
             page,
             limit,
             total: 0,
-            pages: 0
+            pages: 0,
+            hasNext: false,
+            hasPrev: false
           }
         });
       }
     }
 
-    // Apply exclude tags filter (conversations that DON'T have ANY of these tags)
-    if (excludeTags.length > 0) {
-      const { data: excludedConversationIds } = await supabase
-        .from('conversation_tags')
-        .select('conversation_id')
-        .in('tag_id', excludeTags);
-
-      if (excludedConversationIds && excludedConversationIds.length > 0) {
-        const excludedIds = excludedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
-        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
-      }
+    // Apply exclude tags filter
+    if (excludeTags.length > 0 && excludedConversationIds && excludedConversationIds.length > 0) {
+      query = query.not('id', 'in', `(${excludedConversationIds.join(',')})`);
     }
 
     // Apply search filtering
@@ -248,16 +274,10 @@ export async function GET(request: NextRequest) {
       countQuery = countQuery.lte('last_message_time', endDateTime.toISOString());
     }
 
-    // Apply same include tags filter for count
+    // Apply same include tags filter for count (reuse already fetched data)
     if (includeTags.length > 0) {
-      const { data: includedConversationIds } = await supabase
-        .from('conversation_tags')
-        .select('conversation_id')
-        .in('tag_id', includeTags);
-
       if (includedConversationIds && includedConversationIds.length > 0) {
-        const conversationIds = includedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
-        countQuery = countQuery.in('id', conversationIds);
+        countQuery = countQuery.in('id', includedConversationIds);
       } else {
         return NextResponse.json({
           conversations: [],
@@ -265,23 +285,17 @@ export async function GET(request: NextRequest) {
             page,
             limit,
             total: 0,
-            pages: 0
+            pages: 0,
+            hasNext: false,
+            hasPrev: false
           }
         });
       }
     }
 
-    // Apply same exclude tags filter for count
-    if (excludeTags.length > 0) {
-      const { data: excludedConversationIds } = await supabase
-        .from('conversation_tags')
-        .select('conversation_id')
-        .in('tag_id', excludeTags);
-
-      if (excludedConversationIds && excludedConversationIds.length > 0) {
-        const excludedIds = excludedConversationIds.map((ct: { conversation_id: string }) => ct.conversation_id);
-        countQuery = countQuery.not('id', 'in', `(${excludedIds.join(',')})`);
-      }
+    // Apply same exclude tags filter for count (reuse already fetched data)
+    if (excludeTags.length > 0 && excludedConversationIds && excludedConversationIds.length > 0) {
+      countQuery = countQuery.not('id', 'in', `(${excludedConversationIds.join(',')})`);
     }
 
     // Apply same search filter for count

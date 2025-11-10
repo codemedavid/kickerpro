@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
+// Batch size for parallel processing
+const PARALLEL_BATCH_SIZE = 10;
+const FACEBOOK_API_LIMIT = 100;
+
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
@@ -54,7 +58,7 @@ export async function POST(request: NextRequest) {
     let updatedCount = 0;
     let totalConversations = 0;
     let totalEventsCreated = 0;
-    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=100&access_token=${page.access_token}`;
+    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}&access_token=${page.access_token}`;
 
     console.log('[Sync Conversations] Starting to fetch ALL conversations from Facebook with message history...');
 
@@ -75,116 +79,162 @@ export async function POST(request: NextRequest) {
       
       console.log('[Sync Conversations] Processing batch of', conversations.length, 'conversations');
 
-      // Process each conversation
+      // Prepare all conversation payloads and events in bulk
+      const conversationPayloads: Array<{
+        user_id: string;
+        page_id: string;
+        sender_id: string;
+        sender_name: string;
+        last_message_time: string;
+        conversation_status: string;
+      }> = [];
+      
+      const conversationToMessages = new Map<string, any[]>();
+
+      // Extract all valid participants and their messages
       for (const conv of conversations) {
         const participants = conv.participants?.data || [];
         const lastTime = conv.updated_time || new Date().toISOString();
+        const messages = conv.messages?.data || [];
 
         for (const participant of participants) {
           // Skip the page itself
           if (participant.id === effectiveFacebookPageId) continue;
 
-          try {
-            const payload = {
-              user_id: userId,
-              page_id: effectiveFacebookPageId,
-              sender_id: participant.id,
-              sender_name: participant.name || 'Facebook User',
-              last_message_time: lastTime,
-              conversation_status: 'active'
-            };
+          conversationPayloads.push({
+            user_id: userId,
+            page_id: effectiveFacebookPageId,
+            sender_id: participant.id,
+            sender_name: participant.name || 'Facebook User',
+            last_message_time: lastTime,
+            conversation_status: 'active'
+          });
 
-            const attemptUpsert = async (onConflict: string) =>
-              supabase
-                .from('messenger_conversations')
-                .upsert(payload, { onConflict })
-                .select('id, created_at, updated_at');
+          // Store messages for later event creation
+          conversationToMessages.set(`${effectiveFacebookPageId}-${participant.id}`, {
+            messages,
+            lastTime,
+            participantId: participant.id
+          });
+        }
+      }
 
-            let { data: upsertedRows, error: upsertError } = await attemptUpsert('page_id,sender_id');
+      // Bulk upsert all conversations
+      if (conversationPayloads.length > 0) {
+        const attemptUpsert = async (onConflict: string) =>
+          supabase
+            .from('messenger_conversations')
+            .upsert(conversationPayloads, { onConflict, ignoreDuplicates: false })
+            .select('id, sender_id, page_id, created_at, updated_at');
 
-            if (upsertError && upsertError.code === '42P10') {
-              console.warn('[Sync Conversations] Missing unique constraint for new key. Retrying with legacy key.');
-              ({ data: upsertedRows, error: upsertError } = await attemptUpsert('user_id,page_id,sender_id'));
-            }
+        let { data: upsertedRows, error: upsertError } = await attemptUpsert('page_id,sender_id');
 
-            if (upsertError) {
-              console.error('[Sync Conversations] Error upserting conversation:', upsertError);
-              continue;
-            }
+        if (upsertError && upsertError.code === '42P10') {
+          console.warn('[Sync Conversations] Missing unique constraint for new key. Retrying with legacy key.');
+          ({ data: upsertedRows, error: upsertError } = await attemptUpsert('user_id,page_id,sender_id'));
+        }
 
-            if (upsertedRows) {
-              for (const row of upsertedRows) {
-                syncedConversationIds.add(row.id);
-                const isNewConversation = row.created_at === row.updated_at;
+        if (upsertError) {
+          console.error('[Sync Conversations] Error bulk upserting conversations:', upsertError);
+        } else if (upsertedRows) {
+          // Collect all events for bulk insert
+          const allEventsToInsert: Array<{
+            user_id: string;
+            conversation_id: string;
+            sender_id: string;
+            event_type: string;
+            event_timestamp: string;
+            channel: string;
+            is_outbound: boolean;
+            is_success: boolean;
+            success_weight: number;
+            metadata: any;
+          }> = [];
+
+          for (const row of upsertedRows) {
+            syncedConversationIds.add(row.id);
+            const isNewConversation = row.created_at === row.updated_at;
+            
+            if (isNewConversation) {
+              insertedCount++;
+              
+              // Get messages for this conversation
+              const key = `${row.page_id}-${row.sender_id}`;
+              const messageData = conversationToMessages.get(key);
+              
+              if (messageData) {
+                const { messages, lastTime, participantId } = messageData;
                 
-                if (isNewConversation) {
-                  insertedCount++;
+                // Process up to 25 most recent messages to establish activity patterns
+                const recentMessages = messages.slice(0, 25);
+                
+                for (const msg of recentMessages) {
+                  if (!msg.created_time) continue;
                   
-                  // Create interaction events from actual message history
-                  const messages = conv.messages?.data || [];
-                  const eventsToInsert = [];
+                  const isFromPage = msg.from?.id === effectiveFacebookPageId;
+                  const isFromContact = msg.from?.id === participantId;
                   
-                  // Process up to 25 most recent messages to establish activity patterns
-                  const recentMessages = messages.slice(0, 25);
+                  // Skip messages from unknown participants
+                  if (!isFromPage && !isFromContact) continue;
                   
-                  for (const msg of recentMessages) {
-                    if (!msg.created_time) continue;
-                    
-                    const isFromPage = msg.from?.id === effectiveFacebookPageId;
-                    const isFromContact = msg.from?.id === participant.id;
-                    
-                    // Skip messages from unknown participants
-                    if (!isFromPage && !isFromContact) continue;
-                    
-                    eventsToInsert.push({
-                      user_id: userId,
-                      conversation_id: row.id,
-                      sender_id: participant.id,
-                      event_type: isFromContact ? 'message_replied' : 'message_sent',
-                      event_timestamp: msg.created_time,
-                      channel: 'messenger',
-                      is_outbound: isFromPage,
-                      is_success: isFromContact, // Contact replied = success
-                      success_weight: isFromContact ? 1.0 : 0.0,
-                      metadata: {
-                        source: 'initial_sync',
-                        message_id: msg.id,
-                        synced_at: new Date().toISOString()
-                      }
-                    });
-                  }
-                  
-                  // If no messages, create one default event
-                  if (eventsToInsert.length === 0) {
-                    eventsToInsert.push({
-                      user_id: userId,
-                      conversation_id: row.id,
-                      sender_id: participant.id,
-                      event_type: 'message_replied',
-                      event_timestamp: lastTime,
-                      channel: 'messenger',
-                      is_outbound: false,
-                      is_success: true,
-                      success_weight: 1.0,
-                      metadata: {
-                        source: 'initial_sync_fallback',
-                        synced_at: new Date().toISOString()
-                      }
-                    });
-                  }
-                  
-                  // Bulk insert events
-                  if (eventsToInsert.length > 0) {
-                    await supabase.from('contact_interaction_events').insert(eventsToInsert);
-                    totalEventsCreated += eventsToInsert.length;
-                  }
-                } else {
-                  updatedCount++;
+                  allEventsToInsert.push({
+                    user_id: userId,
+                    conversation_id: row.id,
+                    sender_id: participantId,
+                    event_type: isFromContact ? 'message_replied' : 'message_sent',
+                    event_timestamp: msg.created_time,
+                    channel: 'messenger',
+                    is_outbound: isFromPage,
+                    is_success: isFromContact,
+                    success_weight: isFromContact ? 1.0 : 0.0,
+                    metadata: {
+                      source: 'initial_sync',
+                      message_id: msg.id,
+                      synced_at: new Date().toISOString()
+                    }
+                  });
+                }
+                
+                // If no messages, create one default event
+                if (recentMessages.length === 0) {
+                  allEventsToInsert.push({
+                    user_id: userId,
+                    conversation_id: row.id,
+                    sender_id: participantId,
+                    event_type: 'message_replied',
+                    event_timestamp: lastTime,
+                    channel: 'messenger',
+                    is_outbound: false,
+                    is_success: true,
+                    success_weight: 1.0,
+                    metadata: {
+                      source: 'initial_sync_fallback',
+                      synced_at: new Date().toISOString()
+                    }
+                  });
                 }
               }
+            } else {
+              updatedCount++;
             }
-          } catch (error) {
-            console.error('[Sync Conversations] Error processing participant:', error);
+          }
+
+          // Bulk insert all events at once
+          if (allEventsToInsert.length > 0) {
+            // Insert in chunks to avoid payload size limits
+            const EVENTS_CHUNK_SIZE = 500;
+            for (let i = 0; i < allEventsToInsert.length; i += EVENTS_CHUNK_SIZE) {
+              const chunk = allEventsToInsert.slice(i, i + EVENTS_CHUNK_SIZE);
+              const { error: eventsError } = await supabase
+                .from('contact_interaction_events')
+                .insert(chunk);
+              
+              if (eventsError) {
+                console.error('[Sync Conversations] Error inserting events chunk:', eventsError);
+              } else {
+                totalEventsCreated += chunk.length;
+              }
+            }
           }
         }
       }
