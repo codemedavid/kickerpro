@@ -187,14 +187,17 @@ export async function POST(request: NextRequest) {
           }
 
           const conversations = data.data || [];
-          totalConversations += conversations.length;
+          const fetchedInBatch = conversations.length;
+          totalConversations += fetchedInBatch;
           
+          // Send fetched update
           send({ 
-            status: 'processing', 
-            message: `Processing ${conversations.length} conversations from batch ${batchNumber}...`,
-            batch: batchNumber,
-            conversationsInBatch: conversations.length,
-            totalFetched: totalConversations
+            status: 'fetching', 
+            message: `Fetched ${fetchedInBatch} conversations`,
+            fetched: fetchedInBatch,
+            total: insertedCount + updatedCount,
+            inserted: insertedCount,
+            updated: updatedCount
           });
 
           // Prepare all conversation payloads and events in bulk
@@ -242,6 +245,17 @@ export async function POST(request: NextRequest) {
 
           // Process batch with retry logic
           if (conversationPayloads.length > 0) {
+            // Send processing update
+            send({
+              status: 'processing',
+              message: `Processing ${conversationPayloads.length} conversations`,
+              processing: conversationPayloads.length,
+              fetched: fetchedInBatch,
+              total: insertedCount + updatedCount,
+              inserted: insertedCount,
+              updated: updatedCount
+            });
+
             let batchProcessed = false;
             let upsertedRows = null;
 
@@ -411,13 +425,15 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // Send real-time update after processing batch
+              // Send real-time update with detailed counts
               send({
                 status: 'syncing',
-                message: `Synced ${insertedCount + updatedCount} conversations...`,
+                message: `Synced ${insertedCount + updatedCount} conversations`,
+                total: insertedCount + updatedCount,
                 inserted: insertedCount,
                 updated: updatedCount,
-                total: insertedCount + updatedCount,
+                fetched: fetchedInBatch,
+                processing: 0, // Done processing this batch
                 failedBatches: failedBatches,
                 skipped: skippedCount
               });

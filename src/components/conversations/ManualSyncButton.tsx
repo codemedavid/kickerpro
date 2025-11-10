@@ -39,7 +39,11 @@ interface SyncStatus {
   resumeSession?: string;
   lastSyncTime?: string;
   progress?: number;
-  realTimeCount?: number; // Real-time counter for live updates
+  realTimeCount?: number; // Total synced
+  fetchedCount?: number; // Being fetched from Facebook
+  processingCount?: number; // Currently processing
+  addedCount?: number; // New conversations added
+  updatedCount?: number; // Existing conversations updated
 }
 
 export function ManualSyncButton({
@@ -125,14 +129,18 @@ export function ManualSyncButton({
             const data = JSON.parse(message.slice(6)); // Remove 'data: ' prefix
             lastResult = data;
 
-            // Update status based on stream message - continuous updates
-            if (data.status === 'syncing' || data.status === 'batch_complete' || data.status === 'processing') {
+            // Update status based on stream message - real-time updates
+            if (data.status === 'syncing' || data.status === 'batch_complete' || data.status === 'processing' || data.status === 'fetching') {
               setSyncStatus({
                 status: 'syncing',
                 realTimeCount: data.total || 0,
+                fetchedCount: data.fetched || data.conversationsInBatch || 0,
+                processingCount: data.processing || 0,
+                addedCount: data.inserted || 0,
+                updatedCount: data.updated || 0,
                 inserted: data.inserted || 0,
                 updated: data.updated || 0,
-                progress: Math.min((data.total || 0) / 10, 90) // Smooth progress based on count
+                progress: Math.min((data.total || 0) / 10, 90)
               });
             } else if (data.status === 'complete' || data.status === 'complete_with_errors') {
               // Final result
@@ -294,33 +302,61 @@ export function ManualSyncButton({
       {/* Live Counter for Syncing State */}
       {showProgress && syncStatus.status === 'syncing' && (
         <div className="space-y-3">
-          {/* Big Live Counter */}
+          {/* Main Counter - Total Synced */}
           <div className="flex flex-col items-center justify-center py-3 px-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded-lg border-2 border-blue-200 dark:border-blue-800 shadow-sm">
             <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 tabular-nums animate-pulse">
               {syncStatus.realTimeCount || 0}
             </div>
             <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">
-              syncing conversations...
+              total synced
+            </div>
+          </div>
+
+          {/* Real-time Stats Grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Fetched Counter */}
+            <div className="flex flex-col items-center p-2 bg-indigo-50 dark:bg-indigo-950 rounded border border-indigo-200 dark:border-indigo-800">
+              <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                {syncStatus.fetchedCount || 0}
+              </div>
+              <div className="text-xs text-indigo-600 dark:text-indigo-400">
+                fetched
+              </div>
+            </div>
+
+            {/* Processing Counter */}
+            <div className="flex flex-col items-center p-2 bg-purple-50 dark:bg-purple-950 rounded border border-purple-200 dark:border-purple-800">
+              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 tabular-nums">
+                {syncStatus.processingCount || 0}
+              </div>
+              <div className="text-xs text-purple-600 dark:text-purple-400">
+                processing
+              </div>
+            </div>
+
+            {/* Added Counter */}
+            <div className="flex flex-col items-center p-2 bg-green-50 dark:bg-green-950 rounded border border-green-200 dark:border-green-800">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums">
+                {syncStatus.addedCount || 0}
+              </div>
+              <div className="text-xs text-green-600 dark:text-green-400">
+                added
+              </div>
+            </div>
+
+            {/* Updated Counter */}
+            <div className="flex flex-col items-center p-2 bg-orange-50 dark:bg-orange-950 rounded border border-orange-200 dark:border-orange-800">
+              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400 tabular-nums">
+                {syncStatus.updatedCount || 0}
+              </div>
+              <div className="text-xs text-orange-600 dark:text-orange-400">
+                updated
+              </div>
             </div>
           </div>
 
           {/* Progress Bar */}
           <Progress value={syncStatus.progress} className="h-2" />
-          
-          {/* Stats Row - Centered */}
-          {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
-            <div className="flex items-center justify-center gap-4 text-xs">
-              <span className="flex items-center gap-1">
-                <span className="text-green-600 dark:text-green-400 font-bold text-base">{syncStatus.inserted}</span>
-                <span className="text-muted-foreground">new</span>
-              </span>
-              <span className="text-muted-foreground">•</span>
-              <span className="flex items-center gap-1">
-                <span className="text-orange-600 dark:text-orange-400 font-bold text-base">{syncStatus.updated}</span>
-                <span className="text-muted-foreground">updated</span>
-              </span>
-            </div>
-          )}
         </div>
       )}
 
