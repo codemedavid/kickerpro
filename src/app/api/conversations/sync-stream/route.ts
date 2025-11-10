@@ -121,6 +121,8 @@ export async function POST(request: NextRequest) {
             participantId: string;
           }>();
 
+          const existingSenderIds = new Set<string>();
+
           // Extract all valid participants and their messages
           for (const conv of conversations) {
             const participants = conv.participants?.data || [];
@@ -139,6 +141,8 @@ export async function POST(request: NextRequest) {
                 conversation_status: 'active'
               });
 
+              existingSenderIds.add(participant.id);
+
               // Store messages for later event creation
               conversationToMessages.set(`${effectiveFacebookPageId}-${participant.id}`, {
                 messages,
@@ -150,6 +154,27 @@ export async function POST(request: NextRequest) {
 
           // Bulk upsert all conversations
           if (conversationPayloads.length > 0) {
+            const existingConversations = new Map<string, { last_message_time: string }>();
+
+            if (existingSenderIds.size > 0) {
+              const senderIdList = Array.from(existingSenderIds);
+              const { data: existingRows, error: existingError } = await supabase
+                .from('messenger_conversations')
+                .select('sender_id, last_message_time')
+                .eq('page_id', effectiveFacebookPageId)
+                .in('sender_id', senderIdList);
+
+              if (existingError) {
+                console.error('[Sync Stream] Error loading existing conversations:', existingError);
+              } else {
+                for (const existing of existingRows || []) {
+                  existingConversations.set(`${effectiveFacebookPageId}-${existing.sender_id}`, {
+                    last_message_time: existing.last_message_time,
+                  });
+                }
+              }
+            }
+
             const attemptUpsert = async (onConflict: string) =>
               supabase
                 .from('messenger_conversations')
@@ -182,30 +207,90 @@ export async function POST(request: NextRequest) {
 
               for (const row of upsertedRows) {
                 syncedConversationIds.add(row.id);
-                const isNewConversation = row.created_at === row.updated_at;
-                
+                const key = `${row.page_id}-${row.sender_id}`;
+                const messageData = conversationToMessages.get(key);
+
+                if (!messageData) {
+                  skippedCount++;
+                  continue;
+                }
+
+                const { messages, lastTime, participantId } = messageData;
+                const isNewConversation = row.created_at === row.updated_at && !existingConversations.has(key);
+
                 if (isNewConversation) {
                   insertedCount++;
-                  
-                  // Get messages for this conversation
-                  const key = `${row.page_id}-${row.sender_id}`;
-                  const messageData = conversationToMessages.get(key);
-                  
-                  if (messageData) {
-                    const { messages, lastTime, participantId } = messageData;
-                    
-                    // Process up to 25 most recent messages to establish activity patterns
-                    const recentMessages = messages.slice(0, 25);
-                    
-                    for (const msg of recentMessages) {
-                      if (!msg.created_time) continue;
-                      
+
+                  const recentMessages = messages.slice(0, 25);
+
+                  for (const msg of recentMessages) {
+                    if (!msg.created_time) continue;
+
+                    const isFromPage = msg.from?.id === effectiveFacebookPageId;
+                    const isFromContact = msg.from?.id === participantId;
+
+                    if (!isFromPage && !isFromContact) continue;
+
+                    allEventsToInsert.push({
+                      user_id: userId,
+                      conversation_id: row.id,
+                      sender_id: participantId,
+                      event_type: isFromContact ? 'message_replied' : 'message_sent',
+                      event_timestamp: msg.created_time,
+                      channel: 'messenger',
+                      is_outbound: isFromPage,
+                      is_success: isFromContact,
+                      success_weight: isFromContact ? 1.0 : 0.0,
+                      metadata: {
+                        source: 'initial_sync',
+                        message_id: msg.id,
+                        synced_at: new Date().toISOString()
+                      }
+                    });
+                  }
+
+                  if (recentMessages.length === 0) {
+                    allEventsToInsert.push({
+                      user_id: userId,
+                      conversation_id: row.id,
+                      sender_id: participantId,
+                      event_type: 'message_replied',
+                      event_timestamp: lastTime,
+                      channel: 'messenger',
+                      is_outbound: false,
+                      is_success: true,
+                      success_weight: 1.0,
+                      metadata: {
+                        source: 'initial_sync_fallback',
+                        synced_at: new Date().toISOString()
+                      }
+                    });
+                  }
+                } else {
+                  const previous = existingConversations.get(key);
+
+                  if (!previous) {
+                    skippedCount++;
+                    continue;
+                  }
+
+                  const previousTimestamp = new Date(previous.last_message_time).getTime();
+                  const newMessages = messages.filter((msg) => {
+                    if (!msg.created_time) return false;
+                    const messageTimestamp = new Date(msg.created_time).getTime();
+                    return messageTimestamp > previousTimestamp;
+                  });
+
+                  if (newMessages.length > 0) {
+                    updatedCount++;
+
+                    const limitedMessages = newMessages.slice(0, 25);
+                    for (const msg of limitedMessages) {
                       const isFromPage = msg.from?.id === effectiveFacebookPageId;
                       const isFromContact = msg.from?.id === participantId;
-                      
-                      // Skip messages from unknown participants
+
                       if (!isFromPage && !isFromContact) continue;
-                      
+
                       allEventsToInsert.push({
                         user_id: userId,
                         conversation_id: row.id,
@@ -217,15 +302,17 @@ export async function POST(request: NextRequest) {
                         is_success: isFromContact,
                         success_weight: isFromContact ? 1.0 : 0.0,
                         metadata: {
-                          source: 'initial_sync',
+                          source: 'incremental_sync',
                           message_id: msg.id,
                           synced_at: new Date().toISOString()
                         }
                       });
                     }
-                    
-                    // If no messages, create one default event
-                    if (recentMessages.length === 0) {
+                  } else {
+                    const lastTimestamp = new Date(lastTime).getTime();
+
+                    if (lastTimestamp > previousTimestamp) {
+                      updatedCount++;
                       allEventsToInsert.push({
                         user_id: userId,
                         conversation_id: row.id,
@@ -237,14 +324,14 @@ export async function POST(request: NextRequest) {
                         is_success: true,
                         success_weight: 1.0,
                         metadata: {
-                          source: 'initial_sync_fallback',
+                          source: 'incremental_sync_fallback',
                           synced_at: new Date().toISOString()
                         }
                       });
+                    } else {
+                      skippedCount++;
                     }
                   }
-                } else {
-                  updatedCount++;
                 }
               }
 
@@ -272,6 +359,7 @@ export async function POST(request: NextRequest) {
                 message: `Synced ${insertedCount + updatedCount} conversations...`,
                 inserted: insertedCount,
                 updated: updatedCount,
+                skipped: skippedCount,
                 total: insertedCount + updatedCount
               });
             }
@@ -284,6 +372,7 @@ export async function POST(request: NextRequest) {
             batch: batchNumber,
             inserted: insertedCount,
             updated: updatedCount,
+            skipped: skippedCount,
             total: insertedCount + updatedCount
           });
 
