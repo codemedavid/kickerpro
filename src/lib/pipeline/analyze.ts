@@ -1,10 +1,57 @@
 import { createClient } from '@/lib/supabase/server';
-import OpenAI from 'openai';
 
-function getOpenAIClient() {
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build'
-  });
+// Google Gemini AI configuration
+const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY || '';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODEL = 'gemini-2.0-flash-exp'; // Fast and capable model
+
+async function callGeminiAPI(prompt: string, systemInstruction: string): Promise<string> {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GOOGLE_AI_API_KEY not configured');
+  }
+
+  const response = await fetch(
+    `${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: systemInstruction + '\n\n' + prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.9,
+          maxOutputTokens: 2000,
+          responseMimeType: 'application/json'
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Gemini API error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!content) {
+    const finishReason = data.candidates?.[0]?.finishReason;
+    throw new Error(`No content in Gemini response. Finish reason: ${finishReason || 'unknown'}`);
+  }
+
+  return content;
 }
 
 interface StageAnalysisResult {
@@ -156,26 +203,11 @@ Respond ONLY with a JSON object in this exact format:
   "confidence": 0.85
 }`;
 
-        const openai = getOpenAIClient();
-        const globalResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a sales pipeline analyst. Analyze contacts and recommend appropriate stages based on conversation history.'
-            },
-            {
-              role: 'user',
-              content: globalPrompt
-            }
-          ],
-          temperature: 0.3,
-          response_format: { type: 'json_object' }
-        });
+        const globalSystemInstruction = 'You are a sales pipeline analyst. Analyze contacts and recommend appropriate stages based on conversation history. You must respond with valid JSON only.';
 
-        const globalAnalysis: GlobalAnalysisResult = JSON.parse(
-          globalResponse.choices[0].message.content || '{}'
-        );
+        const globalResponseText = await callGeminiAPI(globalPrompt, globalSystemInstruction);
+        
+        const globalAnalysis: GlobalAnalysisResult = JSON.parse(globalResponseText);
 
         // Step 2: Stage-Specific Analysis
         const stageAnalyses: StageAnalysisResult[] = [];
@@ -210,25 +242,10 @@ Respond ONLY with a JSON object in this exact format:
   "reasoning": "Brief explanation"
 }`;
 
-          const stageResponse = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: `You are analyzing if a contact meets the specific criteria for the "${stage.name}" stage.`
-              },
-              {
-                role: 'user',
-                content: stagePrompt
-              }
-            ],
-            temperature: 0.3,
-            response_format: { type: 'json_object' }
-          });
+          const stageSystemInstruction = `You are analyzing if a contact meets the specific criteria for the "${stage.name}" stage. You must respond with valid JSON only.`;
 
-          const stageAnalysis = JSON.parse(
-            stageResponse.choices[0].message.content || '{}'
-          );
+          const stageResponseText = await callGeminiAPI(stagePrompt, stageSystemInstruction);
+          const stageAnalysis = JSON.parse(stageResponseText);
 
           stageAnalyses.push({
             stage_id: stage.id,
