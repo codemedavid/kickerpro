@@ -30,7 +30,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook, User, Activity, Target, Award, Edit2, Save, X } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook, User, Activity, Target, Award, Edit2, Save, X, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendedWindow } from '@/types/database';
 import { useAuth } from '@/hooks/use-auth';
@@ -138,6 +139,10 @@ export default function BestTimeToContactPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [editingTimezone, setEditingTimezone] = useState(false);
   const [newTimezone, setNewTimezone] = useState<string>('');
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [bulkTimezoneDialogOpen, setBulkTimezoneDialogOpen] = useState(false);
+  const [bulkTimezone, setBulkTimezone] = useState<string>('');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -314,6 +319,62 @@ export default function BestTimeToContactPage() {
     }
   };
 
+  const handleBulkUpdateTimezone = async () => {
+    if (selectedContactIds.size === 0 || !bulkTimezone) return;
+
+    setBulkUpdating(true);
+    try {
+      const conversationIds = Array.from(selectedContactIds);
+      const response = await fetch('/api/contact-timing/bulk-update-timezone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_ids: conversationIds,
+          timezone: bulkTimezone,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to bulk update timezone');
+      }
+
+      const data = await response.json();
+      toast.success(`Updated ${data.count} contact(s)! Recomputing best times...`);
+      
+      setBulkTimezoneDialogOpen(false);
+      setBulkTimezone('');
+      setSelectedContactIds(new Set());
+      
+      // Refresh recommendations after a short delay
+      setTimeout(() => {
+        fetchRecommendations();
+      }, 2000);
+    } catch (error) {
+      console.error('Error bulk updating timezone:', error);
+      toast.error('Failed to update timezones');
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const toggleContactSelection = (conversationId: string) => {
+    const newSelection = new Set(selectedContactIds);
+    if (newSelection.has(conversationId)) {
+      newSelection.delete(conversationId);
+    } else {
+      newSelection.add(conversationId);
+    }
+    setSelectedContactIds(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedContactIds.size === recommendations.length) {
+      setSelectedContactIds(new Set());
+    } else {
+      setSelectedContactIds(new Set(recommendations.map(r => r.conversation_id)));
+    }
+  };
+
   return (
     <div className="container mx-auto py-8 space-y-6">
       {/* Header */}
@@ -478,12 +539,42 @@ export default function BestTimeToContactPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions Toolbar */}
+      {selectedContactIds.size > 0 && (
+        <Card className="bg-primary/5 border-primary">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Badge variant="secondary" className="text-lg px-3 py-1">
+                  {selectedContactIds.size} selected
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedContactIds(new Set())}
+                >
+                  Clear Selection
+                </Button>
+              </div>
+              <Button
+                onClick={() => setBulkTimezoneDialogOpen(true)}
+                size="sm"
+              >
+                <Globe className="h-4 w-4 mr-2" />
+                Bulk Update Timezone
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Recommendations Table */}
       <Card>
         <CardHeader>
           <CardTitle>Contact Recommendations</CardTitle>
           <CardDescription>
             Showing {recommendations.length} of {pagination.total} contacts
+            {selectedContactIds.size > 0 && ` • ${selectedContactIds.size} selected`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -511,6 +602,13 @@ export default function BestTimeToContactPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedContactIds.size === recommendations.length && recommendations.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
                       <TableHead>Contact</TableHead>
                       <TableHead>Page</TableHead>
                       <TableHead>Timezone</TableHead>
@@ -525,13 +623,22 @@ export default function BestTimeToContactPage() {
                     {recommendations.map((rec) => (
                       <TableRow 
                         key={rec.id} 
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => {
-                          setSelectedContact(rec);
-                          setDetailsDialogOpen(true);
-                        }}
+                        className="hover:bg-muted/50"
                       >
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedContactIds.has(rec.conversation_id)}
+                            onCheckedChange={() => toggleContactSelection(rec.conversation_id)}
+                            aria-label={`Select ${rec.sender_name}`}
+                          />
+                        </TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div>
                             <div className="font-medium">{rec.sender_name}</div>
                             <div className="text-sm text-muted-foreground">
@@ -539,7 +646,13 @@ export default function BestTimeToContactPage() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div className="flex items-center gap-2">
                             {rec.page_profile_picture && (
                               <img 
@@ -553,7 +666,13 @@ export default function BestTimeToContactPage() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div className="flex items-center gap-2">
                             <MapPin className="h-4 w-4 text-muted-foreground" />
                             <div>
@@ -562,7 +681,13 @@ export default function BestTimeToContactPage() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div className="space-y-1">
                             {rec.recommended_windows.slice(0, 3).map((window, idx) => (
                               <div key={idx} className="flex items-center gap-2 text-sm">
@@ -580,8 +705,22 @@ export default function BestTimeToContactPage() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{getConfidenceBadge(rec.max_confidence)}</TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
+                          {getConfidenceBadge(rec.max_confidence)}
+                        </TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div className="flex items-center gap-2">
                             <TrendingUp className="h-4 w-4 text-green-500" />
                             <span className="font-semibold">
@@ -589,12 +728,24 @@ export default function BestTimeToContactPage() {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <Badge variant={rec.overall_response_rate >= 50 ? 'default' : 'secondary'}>
                             {rec.overall_response_rate}%
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedContact(rec);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
                           <div className="text-sm">
                             {formatDate(rec.last_positive_signal_at)}
                           </div>
@@ -953,6 +1104,82 @@ export default function BestTimeToContactPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Timezone Update Dialog */}
+      <Dialog open={bulkTimezoneDialogOpen} onOpenChange={setBulkTimezoneDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5" />
+              Bulk Update Timezone
+            </DialogTitle>
+            <DialogDescription>
+              Update timezone for {selectedContactIds.size} selected contact(s)
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">
+                Select Timezone for All Selected Contacts
+              </label>
+              <Select value={bulkTimezone} onValueChange={setBulkTimezone}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose timezone..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="bg-muted/50 p-4 rounded-lg">
+              <div className="text-sm space-y-2">
+                <p className="font-medium">What will happen:</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>{selectedContactIds.size} contact(s) will be updated</li>
+                  <li>Timezone confidence set to &quot;High&quot;</li>
+                  <li>Marked as &quot;Manual Override&quot;</li>
+                  <li>Best times automatically recomputed</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBulkTimezoneDialogOpen(false);
+                setBulkTimezone('');
+              }}
+              disabled={bulkUpdating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkUpdateTimezone}
+              disabled={!bulkTimezone || bulkUpdating}
+            >
+              {bulkUpdating ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Update & Recompute
+                </>
+              )}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
