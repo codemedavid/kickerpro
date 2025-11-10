@@ -119,6 +119,14 @@ export async function POST(request: NextRequest) {
 
     for (const conversation of conversations) {
       try {
+        // Check if this contact has a manual timezone override
+        const { data: existingRec } = await supabase
+          .from('contact_timing_recommendations')
+          .select('timezone, timezone_source, timezone_confidence')
+          .eq('conversation_id', conversation.id)
+          .eq('user_id', userId)
+          .single();
+
         // Get interaction events for this contact
         const { data: events } = await supabase
           .from('contact_interaction_events')
@@ -137,9 +145,21 @@ export async function POST(request: NextRequest) {
           hour_of_week: 0, // Will be computed
         }));
 
-        // Infer timezone
-        const messageTimes = contactEvents.map((e) => e.event_timestamp);
-        const timezoneInference = inferBestTimezone(messageTimes);
+        // Preserve manual timezone override or infer new one
+        let timezoneInference;
+        if (existingRec?.timezone_source === 'manual_override') {
+          // Keep the manually set timezone
+          console.log(`[Compute] Preserving manual timezone for ${conversation.sender_name}:`, existingRec.timezone);
+          timezoneInference = {
+            timezone: existingRec.timezone,
+            confidence: existingRec.timezone_confidence as 'low' | 'medium' | 'high',
+            source: 'manual_override',
+          };
+        } else {
+          // Infer timezone from activity
+          const messageTimes = contactEvents.map((e) => e.event_timestamp);
+          timezoneInference = inferBestTimezone(messageTimes);
+        }
 
         // Compute hour_of_week for each event in contact's timezone
         for (const event of contactEvents) {
