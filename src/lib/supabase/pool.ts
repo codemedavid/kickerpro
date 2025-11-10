@@ -48,14 +48,6 @@ class SupabasePool {
         auth: {
           persistSession: false,
           autoRefreshToken: false
-        },
-        db: {
-          schema: 'public'
-        },
-        global: {
-          headers: {
-            'x-connection-pooled': 'true'
-          } as Record<string, string>
         }
       }),
       inUse: false,
