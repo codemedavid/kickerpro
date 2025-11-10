@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getUserPages } from '@/lib/facebook/token-manager';
+import { getUserPages, debugToken } from '@/lib/facebook/token-manager';
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,10 +21,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get user's Facebook token from database
+    // Get user's Facebook token from database (with expiration)
     const { data: user, error: fetchError } = await supabase
       .from('users')
-      .select('facebook_access_token')
+      .select('facebook_access_token, facebook_token_expires_at')
       .eq('id', authUser.id)
       .single();
 
@@ -47,22 +47,47 @@ export async function GET(request: NextRequest) {
 
     if (!pagesData.data || pagesData.data.length === 0) {
       return NextResponse.json({
+        success: true,
         pages: [],
         message: 'No Facebook Pages found for this account',
       });
     }
 
-    // Sync pages to database
-    const pagesToUpsert = pagesData.data.map((page) => ({
-      user_id: authUser.id,
-      facebook_page_id: page.id,
-      name: page.name,
-      category: page.category,
-      profile_picture: page.picture?.data?.url,
-      follower_count: page.followers_count || 0,
-      access_token: page.access_token,
-      is_active: true,
-    }));
+    // Sync pages to database with token expiration tracking
+    const pagesToUpsert = await Promise.all(
+      pagesData.data.map(async (page) => {
+        let tokenExpiresAt: string | null = null;
+        
+        try {
+          // Try to get page token expiration from Facebook API
+          const tokenInfo = await debugToken(page.access_token);
+          
+          if (tokenInfo.data && tokenInfo.data.expires_at && tokenInfo.data.expires_at !== 0) {
+            tokenExpiresAt = new Date(tokenInfo.data.expires_at * 1000).toISOString();
+            console.log(`[Pages] Page ${page.name} token expires at:`, tokenExpiresAt);
+          } else {
+            // Page tokens typically don't expire, inherit user token expiration
+            tokenExpiresAt = user.facebook_token_expires_at;
+            console.log(`[Pages] Page ${page.name} token has no expiration (tied to user token)`);
+          }
+        } catch (error) {
+          console.warn(`[Pages] Could not get expiration for page ${page.name}, using user token expiration:`, error);
+          tokenExpiresAt = user.facebook_token_expires_at;
+        }
+        
+        return {
+          user_id: authUser.id,
+          facebook_page_id: page.id,
+          name: page.name,
+          category: page.category,
+          profile_picture: page.picture?.data?.url,
+          follower_count: page.followers_count || 0,
+          access_token: page.access_token,
+          access_token_expires_at: tokenExpiresAt,
+          is_active: true,
+        };
+      })
+    );
 
     // Upsert pages (insert or update)
     const { error: upsertError } = await supabase
@@ -78,12 +103,18 @@ export async function GET(request: NextRequest) {
 
     // Return synced pages
     return NextResponse.json({
+      success: true,
       pages: pagesData.data.map((page) => ({
         id: page.id,
         name: page.name,
         category: page.category,
-        picture: page.picture?.data?.url,
-        followers_count: page.followers_count || 0,
+        access_token: page.access_token,
+        picture: {
+          data: {
+            url: page.picture?.data?.url
+          }
+        },
+        fan_count: page.followers_count || 0,
       })),
       message: `Successfully synced ${pagesData.data.length} pages`,
     });
@@ -95,7 +126,7 @@ export async function GET(request: NextRequest) {
       : 'Failed to fetch pages';
     
     return NextResponse.json(
-      { error: errorMessage },
+      { success: false, error: errorMessage },
       { status: 500 }
     );
   }

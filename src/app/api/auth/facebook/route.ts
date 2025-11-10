@@ -7,6 +7,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateFacebookOAuthUrl } from '@/lib/facebook/config';
 import { createClient } from '@/lib/supabase/server';
+import { 
+  exchangeForLongLivedToken, 
+  debugToken, 
+  calculateTokenExpiry 
+} from '@/lib/facebook/token-manager';
 
 /**
  * GET handler - OAuth redirect flow
@@ -79,6 +84,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Step 1: Exchange short-lived token for long-lived token
+    console.log('[Facebook Auth] Exchanging for long-lived token...');
+    let finalAccessToken = accessToken;
+    let tokenExpiresAt: Date | null = null;
+    let tokenExpiresIn: number | null = null;
+    
+    try {
+      const longLivedResult = await exchangeForLongLivedToken(accessToken);
+      finalAccessToken = longLivedResult.access_token;
+      
+      // Step 2: Get real expiration from Facebook API
+      const tokenDebugInfo = await debugToken(finalAccessToken);
+      
+      if (tokenDebugInfo.data) {
+        // Facebook returns expires_at as Unix timestamp (seconds)
+        if (tokenDebugInfo.data.expires_at && tokenDebugInfo.data.expires_at !== 0) {
+          tokenExpiresAt = new Date(tokenDebugInfo.data.expires_at * 1000);
+          tokenExpiresIn = Math.floor((tokenExpiresAt.getTime() - Date.now()) / 1000);
+          console.log('[Facebook Auth] ✅ Token expires at:', tokenExpiresAt.toISOString());
+          console.log('[Facebook Auth] ✅ Token expires in:', Math.floor(tokenExpiresIn / 86400), 'days');
+        } else {
+          // Token never expires (page token)
+          console.log('[Facebook Auth] ✅ Token has no expiration (page token)');
+          tokenExpiresAt = calculateTokenExpiry(longLivedResult.expires_in);
+          tokenExpiresIn = longLivedResult.expires_in || null;
+        }
+        
+        if (!tokenDebugInfo.data.is_valid) {
+          console.error('[Facebook Auth] ⚠️ Token is not valid according to Facebook');
+          return NextResponse.json(
+            { 
+              error: 'Invalid Facebook token',
+              details: 'Token was rejected by Facebook API',
+              success: false 
+            },
+            { status: 401 }
+          );
+        }
+      } else {
+        // Fallback if debug fails
+        tokenExpiresAt = calculateTokenExpiry(longLivedResult.expires_in);
+        tokenExpiresIn = longLivedResult.expires_in || null;
+        console.log('[Facebook Auth] ⚠️ Using fallback expiration calculation');
+      }
+      
+      console.log('[Facebook Auth] ✅ Successfully exchanged for long-lived token');
+    } catch (tokenError) {
+      console.error('[Facebook Auth] Failed to exchange token:', tokenError);
+      // Continue with short-lived token but warn
+      console.warn('[Facebook Auth] ⚠️ Continuing with short-lived token (will expire in 1-2 hours)');
+      tokenExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours fallback
+      tokenExpiresIn = 2 * 60 * 60; // 2 hours in seconds
+    }
+
     const supabase = await createClient();
 
     // Check if user exists in database
@@ -100,7 +159,8 @@ export async function POST(request: NextRequest) {
           name,
           email: email || existingUser.email,
           profile_picture: picture || existingUser.profile_picture,
-          facebook_access_token: accessToken,
+          facebook_access_token: finalAccessToken,
+          facebook_token_expires_at: tokenExpiresAt?.toISOString(),
           facebook_token_updated_at: new Date().toISOString(),
         })
         .eq('id', existingUser.id);
@@ -129,7 +189,8 @@ export async function POST(request: NextRequest) {
           name,
           email: email || `facebook_${userID}@temp.com`,
           profile_picture: picture,
-          facebook_access_token: accessToken,
+          facebook_access_token: finalAccessToken,
+          facebook_token_expires_at: tokenExpiresAt?.toISOString(),
           facebook_token_updated_at: new Date().toISOString(),
           role: 'member', // Default role
         })
@@ -153,23 +214,33 @@ export async function POST(request: NextRequest) {
 
     console.log('[Facebook Auth] Session created for user:', userId);
 
+    // Calculate cookie maxAge based on real token expiration
+    // Use actual token expiration, but cap at 60 days for security
+    const cookieMaxAge = tokenExpiresIn 
+      ? Math.min(tokenExpiresIn, 60 * 60 * 24 * 60) // Cap at 60 days
+      : 60 * 60 * 24 * 30; // Default to 30 days if unknown
+
     // Set authentication cookie
     const response = NextResponse.json({
       success: true,
       userId,
       mode: 'database-auth',
-      message: 'Authentication successful'
+      message: 'Authentication successful',
+      tokenExpiresAt: tokenExpiresAt?.toISOString(),
+      tokenExpiresInDays: tokenExpiresIn ? Math.floor(tokenExpiresIn / 86400) : null
     });
 
     response.cookies.set('fb-user-id', userId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
+      maxAge: cookieMaxAge,
       path: '/'
     });
 
-    console.log('[Facebook Auth] Cookie set, responding with success');
+    console.log('[Facebook Auth] Cookie set with expiration:', new Date(Date.now() + cookieMaxAge * 1000).toISOString());
+    console.log('[Facebook Auth] Token expires at:', tokenExpiresAt?.toISOString());
+    console.log('[Facebook Auth] Cookie expires in:', Math.floor(cookieMaxAge / 86400), 'days');
 
     return response;
   } catch (error) {
