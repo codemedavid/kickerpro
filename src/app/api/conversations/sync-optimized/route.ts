@@ -79,19 +79,24 @@ export async function POST(request: NextRequest) {
       errors: []
     };
 
-    // Incremental sync (unless forceFull is true)
-    const lastSyncTime = forceFull ? null : page.last_synced_at;
-    const sinceParam = lastSyncTime 
-      ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` 
+    // IMPROVED: Smart sync - only incremental if VERY recent (<15 min)
+    const now = new Date();
+    const lastSyncTime = page.last_synced_at ? new Date(page.last_synced_at) : null;
+    const minutesSinceSync = lastSyncTime 
+      ? (now.getTime() - lastSyncTime.getTime()) / (1000 * 60) 
+      : Infinity;
+    
+    // Default to FULL sync unless very recently synced
+    const useIncremental = !forceFull && lastSyncTime && minutesSinceSync < 15;
+    const sinceParam = useIncremental 
+      ? `&since=${Math.floor(lastSyncTime.getTime() / 1000)}` 
       : '';
     
-    let nextUrl = `https://graph.facebook.com/v18.0/${page.facebook_page_id}/conversations?fields=participants,updated_time,messages.limit(25){message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
+    let nextUrl = `https://graph.facebook.com/v18.0/${page.facebook_page_id}/conversations?fields=participants,updated_time,messages.limit(10){message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
 
-    const syncMode = forceFull ? 'full (forced)' : (lastSyncTime ? 'incremental' : 'full');
-    console.log('[Sync Optimized] Sync mode:', syncMode);
-    if (forceFull) {
-      console.log('[Sync Optimized] FORCE FULL SYNC - Fetching ALL conversations');
-    }
+    const syncMode = useIncremental ? 'incremental' : 'full';
+    console.log('[Sync Optimized] ALWAYS FULL SYNC (unless <15 min ago)');
+    console.log('[Sync Optimized] Mode:', syncMode, '- Minutes since last sync:', minutesSinceSync.toFixed(1));
 
     // Fetch and process in batches
     while (nextUrl && stats.totalFetched < maxConversations) {

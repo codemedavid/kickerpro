@@ -69,20 +69,41 @@ export async function POST(request: NextRequest) {
     let totalConversations = 0;
     let totalEventsCreated = 0;
     
-    // Incremental sync: only fetch conversations updated since last sync
-    // Unless forceFull is true, then ignore last_synced_at
-    const lastSyncTime = forceFull ? null : page.last_synced_at;
-    const sinceParam = lastSyncTime ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` : '';
+    // IMPROVED APPROACH: Smart sync detection
+    // - Default to FULL sync (always get everything)
+    // - Only use incremental if synced within last 15 minutes
+    // - This prevents missing conversations while still being efficient
+    
+    const now = new Date();
+    const lastSyncTime = page.last_synced_at ? new Date(page.last_synced_at) : null;
+    const minutesSinceSync = lastSyncTime 
+      ? (now.getTime() - lastSyncTime.getTime()) / (1000 * 60) 
+      : Infinity;
+    
+    // Only use incremental if synced very recently (< 15 minutes)
+    // This prevents missing conversations from incremental mode issues
+    const useIncremental = !forceFull && lastSyncTime && minutesSinceSync < 15;
+    const sinceParam = useIncremental 
+      ? `&since=${Math.floor(lastSyncTime.getTime() / 1000)}` 
+      : '';
     
     let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
 
-    const syncMode = forceFull ? 'full (forced)' : (lastSyncTime ? 'incremental' : 'full');
+    const syncMode = useIncremental ? 'incremental' : 'full';
     console.log(`[Sync Conversations] Starting ${syncMode} sync for page:`, facebookPageId);
-    if (lastSyncTime && !forceFull) {
-      console.log('[Sync Conversations] Only fetching conversations updated since:', lastSyncTime);
-    } else if (forceFull) {
-      console.log('[Sync Conversations] FORCE FULL SYNC - Fetching ALL conversations (ignoring last sync time)');
-    }
+    console.log('[Sync Conversations] Sync decision:', {
+      forceFull,
+      lastSyncedAt: page.last_synced_at,
+      minutesSinceSync: minutesSinceSync.toFixed(1),
+      useIncremental,
+      reason: useIncremental 
+        ? 'Recent sync (<15 min) - using incremental'
+        : forceFull 
+          ? 'Forced full sync'
+          : !lastSyncTime 
+            ? 'Never synced - using full'
+            : 'Old sync (>15 min) - using full for safety'
+    });
 
         // Fetch all pages of conversations from Facebook
     while (nextUrl && totalConversations < MAX_CONVERSATIONS_PER_SYNC) {
@@ -368,7 +389,9 @@ export async function POST(request: NextRequest) {
       eventsCreated: totalEventsCreated,
       syncMode: syncMode,
       computeContactTiming: insertedCount > 0,
-      message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync: ${uniqueSynced} conversation(s) with ${totalEventsCreated} events`
+      duration: totalDuration + 's',
+      speed: conversationsPerSecond + ' conversations/sec',
+      message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync: ${uniqueSynced} conversation(s) with ${totalEventsCreated} events in ${totalDuration}s`
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);
