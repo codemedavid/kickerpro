@@ -160,8 +160,7 @@ export async function GET(request: NextRequest) {
     // Success! Redirect to dashboard with success message
     return NextResponse.redirect(
       new URL(
-        '/dashboard?success=facebook_connected&pages=' + 
-        (pagesData?.data?.length || 0),
+        '/dashboard?success=facebook_connected&pages=' + pagesCount,
         request.url
       )
     );

@@ -83,69 +83,73 @@ async function handleMessage(event: WebhookEvent) {
   const messageText = event.message?.text;
   const timestamp = event.timestamp;
 
+  if (!senderId || !recipientId) {
+    console.log('[Webhook⚡] Missing sender or recipient ID');
+    return;
+  }
+
   console.log(`[Webhook⚡] Message from ${senderId} to ${recipientId}`);
   const startTime = Date.now();
 
   try {
-    // Use connection pooling for faster database access
-    await withPooledClient(async (supabase) => {
-      // Check cache for page user_id first
-      const cacheKey = `page:${recipientId}:user`;
-      let userId = await getCached<string>(cacheKey);
+    const supabase = await createClient();
+    
+    // Check cache for page user_id first
+    const cacheKey = `page:${recipientId}:user`;
+    let userId = await getCached<string>(cacheKey);
 
-      if (!userId) {
-        // Cache miss - fetch from database
-        const { data: page } = await supabase
-          .from('facebook_pages')
-          .select('user_id')
-          .eq('facebook_page_id', recipientId)
-          .single();
+    if (!userId) {
+      // Cache miss - fetch from database
+      const { data: page } = await supabase
+        .from('facebook_pages')
+        .select('user_id')
+        .eq('facebook_page_id', recipientId)
+        .single();
 
-        if (!page) {
-          console.log(`[Webhook⚡] No page found for: ${recipientId}`);
-          return;
-        }
-
-        userId = page.user_id;
-        // Cache for 5 minutes
-        await setCached(cacheKey, userId, 300);
+      if (!page) {
+        console.log(`[Webhook⚡] No page found for: ${recipientId}`);
+        return;
       }
 
-      // Save conversation with optimized upsert
-      const payload = {
-        user_id: userId,
-        page_id: recipientId,
-        sender_id: senderId,
-        sender_name: 'Facebook User',
-        last_message: messageText,
-        last_message_time: new Date(timestamp).toISOString(),
-        conversation_status: 'active'
-      };
+      userId = page.user_id;
+      // Cache for 5 minutes
+      await setCached(cacheKey, userId, 300);
+    }
 
-      const attemptUpsert = async (onConflict: string) =>
-        supabase
-          .from('messenger_conversations')
-          .upsert(payload, {
-            onConflict,
-            ignoreDuplicates: false
-          });
+    // Save conversation with optimized upsert
+    const payload = {
+      user_id: userId,
+      page_id: recipientId,
+      sender_id: senderId,
+      sender_name: 'Facebook User',
+      last_message: messageText || '',
+      last_message_time: new Date(timestamp).toISOString(),
+      conversation_status: 'active'
+    };
 
-      let { error } = await attemptUpsert('page_id,sender_id');
+    const attemptUpsert = async (onConflict: string) =>
+      supabase
+        .from('messenger_conversations')
+        .upsert(payload, {
+          onConflict,
+          ignoreDuplicates: false
+        });
 
-      if (error && error.code === '42P10') {
-        ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
-      }
+    let { error } = await attemptUpsert('page_id,sender_id');
 
-      if (error) {
-        console.error('[Webhook⚡] Error saving:', error.message);
-      } else {
-        // Invalidate conversation cache for instant UI updates
-        await invalidateConversationCache(recipientId!);
-        
-        const duration = Date.now() - startTime;
-        console.log(`[Webhook⚡] ✓ Saved in ${duration}ms`);
-      }
-    });
+    if (error && error.code === '42P10') {
+      ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
+    }
+
+    if (error) {
+      console.error('[Webhook⚡] Error saving:', error.message);
+    } else {
+      // Invalidate conversation cache for instant UI updates
+      await invalidateConversationCache(recipientId);
+      
+      const duration = Date.now() - startTime;
+      console.log(`[Webhook⚡] ✓ Saved in ${duration}ms`);
+    }
   } catch (error) {
     console.error('[Webhook⚡] Error:', error);
   }
