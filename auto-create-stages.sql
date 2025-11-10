@@ -4,7 +4,7 @@
 -- ============================================
 
 -- Create stages using a CTE to get user_id automatically
-WITH current_user AS (
+WITH my_user AS (
     SELECT id FROM auth.users ORDER BY created_at DESC LIMIT 1
 )
 INSERT INTO pipeline_stages (user_id, name, description, color, analysis_prompt, is_default, is_active, position)
@@ -17,7 +17,7 @@ SELECT
     stage_default,
     true as is_active,
     stage_position
-FROM current_user
+FROM my_user
 CROSS JOIN (
     VALUES
         ('New Lead', 'Early exploration', '#3b82f6', 'New Lead if browsing or first message. Keywords: info, curious, what, tell me.', false, 0),
