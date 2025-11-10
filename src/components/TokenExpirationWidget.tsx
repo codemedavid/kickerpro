@@ -256,9 +256,10 @@ export function TokenExpirationWidget() {
     }
     
     // Trigger auto-refresh at 5 minutes (once only)
-    if (totalSeconds <= 300 && totalSeconds > 0 && !hasTriggeredAutoRefresh.current) {
+    // Allow triggering at 0 or negative seconds to ensure it happens even if countdown reaches zero
+    if (totalSeconds <= 300 && !hasTriggeredAutoRefresh.current) {
       hasTriggeredAutoRefresh.current = true;
-      console.log('[TokenWidget] 🔄 Auto-refresh triggered - redirecting to login in 5 seconds...');
+      console.log('[TokenWidget] 🔄 Auto-refresh triggered at', totalSeconds, 'seconds - redirecting to login in 5 seconds...');
       
       // Show notification
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -542,9 +543,13 @@ export function TokenExpirationWidget() {
                     <span className="text-xs font-medium text-white">Auto-Refresh</span>
                     <p className="text-[10px] text-white/60">
                       {autoRefresh ? (
-                        timeRemaining.total <= 300 ? (
+                        timeRemaining.total <= 0 ? (
+                          <span className="text-red-300 font-semibold animate-pulse">
+                            🔄 Triggering now...
+                          </span>
+                        ) : timeRemaining.total <= 300 ? (
                           <span className="text-yellow-300 font-semibold">
-                            🔄 Triggering in {timeRemaining.total} seconds...
+                            🔄 Will trigger in {timeRemaining.total} seconds
                           </span>
                         ) : timeRemaining.total <= 600 ? (
                           <span className="text-orange-300">
