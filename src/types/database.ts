@@ -617,8 +617,7 @@ export interface Database {
 // Supporting types
 export interface RecommendedWindow {
   dow: string;
-  start: string;
-  end: string;
+  time: string; // Specific time (e.g., "08:00" or "19:30")
   confidence: number;
   hour_of_week: number;
 }
