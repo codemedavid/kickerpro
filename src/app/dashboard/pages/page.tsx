@@ -43,6 +43,7 @@ interface FacebookPage {
   follower_count: number | null;
   is_active: boolean;
   created_at: string;
+  last_synced_at: string | null;
 }
 
 interface FacebookPageFromAPI {
