@@ -70,7 +70,13 @@ export async function POST(request: NextRequest) {
 
     // Update all recommendations with new timezone
     console.log('[Bulk Update Timezone API] Updating database...');
-    const { error: updateError, count } = await supabase
+    console.log('[Bulk Update Timezone API] Query params:', {
+      conversation_ids,
+      user_id: userId,
+      timezone
+    });
+    
+    const { data: updatedRows, error: updateError } = await supabase
       .from('contact_timing_recommendations')
       .update({
         timezone,
@@ -79,15 +85,37 @@ export async function POST(request: NextRequest) {
         last_computed_at: new Date().toISOString(),
       })
       .in('conversation_id', conversation_ids)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select('id, conversation_id, timezone');
 
-    console.log('[Bulk Update Timezone API] Update result:', { error: updateError, count });
+    const count = updatedRows?.length || 0;
+    console.log('[Bulk Update Timezone API] Update result:', { 
+      error: updateError, 
+      count,
+      updatedRows
+    });
 
     if (updateError) {
       console.error('[Bulk Update Timezone API] Database error:', updateError);
       return NextResponse.json(
         { error: 'Failed to update timezones', details: updateError.message },
         { status: 500 }
+      );
+    }
+
+    if (count === 0) {
+      console.warn('[Bulk Update Timezone API] No rows updated - possible reasons:');
+      console.warn('  - conversation_ids do not exist in contact_timing_recommendations');
+      console.warn('  - user_id does not match');
+      console.warn('  - RLS policy blocking update');
+      return NextResponse.json(
+        { 
+          error: 'No contacts were updated',
+          details: 'The selected contacts may not have timing recommendations yet. Try running "Compute All" first.',
+          count: 0,
+          requested_count: conversation_ids.length
+        },
+        { status: 400 }
       );
     }
 

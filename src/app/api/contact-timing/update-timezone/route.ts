@@ -60,7 +60,13 @@ export async function POST(request: NextRequest) {
 
     // Update the recommendation with new timezone
     console.log('[Update Timezone API] Updating database...');
-    const { error: updateError, count } = await supabase
+    console.log('[Update Timezone API] Query params:', {
+      conversation_id,
+      user_id: userId,
+      timezone
+    });
+    
+    const { data: updatedRows, error: updateError } = await supabase
       .from('contact_timing_recommendations')
       .update({
         timezone,
@@ -69,9 +75,15 @@ export async function POST(request: NextRequest) {
         last_computed_at: new Date().toISOString(),
       })
       .eq('conversation_id', conversation_id)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select('id, conversation_id, timezone');
 
-    console.log('[Update Timezone API] Update result:', { error: updateError, count });
+    const count = updatedRows?.length || 0;
+    console.log('[Update Timezone API] Update result:', { 
+      error: updateError, 
+      count,
+      updatedRows
+    });
 
     if (updateError) {
       console.error('[Update Timezone API] Database error:', updateError);
