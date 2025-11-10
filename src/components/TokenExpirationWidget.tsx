@@ -226,9 +226,11 @@ export function TokenExpirationWidget() {
     };
 
     const updateTimeRemaining = () => {
-      if (cachedExpiresAt) {
+      const expiration = lastKnownExpiresAt.current ?? cachedExpiresAt;
+
+      if (expiration) {
         const now = Date.now();
-        const diff = cachedExpiresAt - now;
+        const diff = expiration - now;
 
         if (diff > 0) {
           const totalSeconds = Math.floor(diff / 1000);
@@ -344,6 +346,9 @@ export function TokenExpirationWidget() {
       const response = await fetch('/api/auth/verify-token');
       if (response.ok) {
         const data = await response.json();
+        if (data.expiresAt) {
+          lastKnownExpiresAt.current = data.expiresAt;
+        }
         setVerification({
           isValid: data.isValid,
           expiresAt: data.expiresAt,
@@ -354,51 +359,53 @@ export function TokenExpirationWidget() {
         });
         
         // If there's a mismatch, update the countdown to use the real expiration
-        if (data.hasMismatch && data.expiresAt) {
-          setTokenData({
+        if (data.expiresAt) {
+          setTokenData(previous => ({
             expiresAt: data.expiresAt,
-            userName: data.userName
-          });
-          
-          // Update the cookie with the correct expiration
-          document.cookie = `fb-token-expires=${data.expiresAt}; path=/; max-age=${data.expiresIn}`;
-          
-          // Reset auto-refresh flags since we have new expiration data
-          hasTriggeredAutoRefresh.current = false;
-          hasShownWarning.current = false;
-          
-          console.log('[TokenWidget] Updated expiration to match Facebook:', new Date(data.expiresAt).toLocaleString());
-        }
-        
-        // If the token has been refreshed (much longer expiration than expected), reset flags
-        if (data.expiresIn > 86400) { // More than 1 day
-          hasTriggeredAutoRefresh.current = false;
-          hasShownWarning.current = false;
-          
-          const expiresInDays = Math.floor(data.expiresIn / 86400);
-          
-          // Show refresh confirmation
-          setRefreshStatus({
-            wasRefreshed: true,
-            refreshedAt: Date.now(),
-            newExpirationDays: expiresInDays
-          });
-          
-          console.log('[TokenWidget] ✅ Token appears refreshed - reset auto-refresh flags');
-          console.log('[TokenWidget] 🎉 Token valid for', expiresInDays, 'more days');
-          
-          // Show notification
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('✅ Token Verified & Active!', {
-              body: `Your Facebook token is valid for ${expiresInDays} more days.`,
-              icon: '/favicon.ico',
-            });
+            userName: data.userName ?? previous?.userName,
+          }));
+
+          if (data.hasMismatch) {
+            // Update the cookie with the correct expiration
+            document.cookie = `fb-token-expires=${data.expiresAt}; path=/; max-age=${data.expiresIn}`;
+
+            // Reset auto-refresh flags since we have new expiration data
+            hasTriggeredAutoRefresh.current = false;
+            hasShownWarning.current = false;
+
+            console.log('[TokenWidget] Updated expiration to match Facebook:', new Date(data.expiresAt).toLocaleString());
           }
-          
-          // Auto-hide after 30 seconds
-          setTimeout(() => {
-            setRefreshStatus(null);
-          }, 30000);
+
+          // If the token has been refreshed (much longer expiration than expected), reset flags
+          if (data.expiresIn > 86400) { // More than 1 day
+            hasTriggeredAutoRefresh.current = false;
+            hasShownWarning.current = false;
+
+            const expiresInDays = Math.floor(data.expiresIn / 86400);
+
+            // Show refresh confirmation
+            setRefreshStatus({
+              wasRefreshed: true,
+              refreshedAt: Date.now(),
+              newExpirationDays: expiresInDays
+            });
+
+            console.log('[TokenWidget] ✅ Token appears refreshed - reset auto-refresh flags');
+            console.log('[TokenWidget] 🎉 Token valid for', expiresInDays, 'more days');
+
+            // Show notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('✅ Token Verified & Active!', {
+                body: `Your Facebook token is valid for ${expiresInDays} more days.`,
+                icon: '/favicon.ico',
+              });
+            }
+
+            // Auto-hide after 30 seconds
+            setTimeout(() => {
+              setRefreshStatus(null);
+            }, 30000);
+          }
         }
       } else {
         console.error('[TokenWidget] Failed to verify token:', await response.text());
