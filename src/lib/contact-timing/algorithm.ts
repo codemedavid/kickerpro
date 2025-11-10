@@ -350,8 +350,7 @@ export function selectTopWindows(
       const { dow, hour } = hourOfWeekToLabel(bin.hour_of_week);
       selectedWindows.push({
         dow,
-        start: `${hour.toString().padStart(2, '0')}:00`,
-        end: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
+        time: `${hour.toString().padStart(2, '0')}:00`,
         confidence: Math.round(bin.smoothed_probability * 100) / 100,
         hour_of_week: bin.hour_of_week,
       });
