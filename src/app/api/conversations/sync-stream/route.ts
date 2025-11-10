@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 
 // Enable streaming
 export const runtime = 'nodejs';
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const cookieStore = await cookies();
-        const userId = cookieStore.get('fb-auth-user')?.value;
+        const userId = getUserIdFromCookies(cookieStore);
 
         if (!userId) {
           send({ error: 'Not authenticated', status: 'error' });

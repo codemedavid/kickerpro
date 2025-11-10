@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 
 /**
  * GET /api/pipeline/opportunities/[id]
@@ -13,7 +14,7 @@ export async function GET(
   try {
     const { id } = await params;
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -60,7 +61,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -151,7 +152,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

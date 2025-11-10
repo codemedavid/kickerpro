@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 import {
   getPersonalizedContentFromConversations,
@@ -17,7 +18,7 @@ export async function POST(
   try {
     const { id: messageId } = await params;
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

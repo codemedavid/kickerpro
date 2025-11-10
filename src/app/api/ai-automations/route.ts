@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 
 /**
@@ -9,7 +10,7 @@ import { createClient } from '@/lib/supabase/server';
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -46,7 +47,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     console.log('[AI Automations POST] User ID:', userId);
 

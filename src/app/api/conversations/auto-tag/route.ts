@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getUserIdFromCookies } from '@/lib/auth/cookies';
 import { resetAutomationStopsForTags } from '@/lib/automation/reset-stops';
 
 export async function POST(request: NextRequest) {
@@ -8,7 +9,7 @@ export async function POST(request: NextRequest) {
     console.log('[Auto-tag API] 🏷️ Starting auto-tag request');
     
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getUserIdFromCookies(cookieStore);
 
     if (!userId) {
       console.error('[Auto-tag API] 🏷️ ❌ Not authenticated');
