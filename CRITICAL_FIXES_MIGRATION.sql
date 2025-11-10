@@ -217,7 +217,10 @@ BEGIN
         last_message_time = EXCLUDED.last_message_time,
         conversation_status = EXCLUDED.conversation_status,
         updated_at = NOW()
-    RETURNING id, (xmax = 0) AS is_new_row, version
+    -- FIX: Fully qualify the version column to avoid ambiguity
+    RETURNING messenger_conversations.id, 
+              (xmax = 0) AS is_new_row, 
+              messenger_conversations.version
     INTO v_conversation_id, v_is_new, v_version;
     
     -- Insert events if provided and conversation is new
