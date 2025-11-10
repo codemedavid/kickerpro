@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const userId = user.id;
 
     const body = await request.json();
-    const { pageId, facebookPageId } = body;
+    const { pageId, facebookPageId, forceFull = false } = body;
 
     if (!pageId || !facebookPageId) {
       return NextResponse.json(
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Sync Conversations] Syncing for page:', facebookPageId);
+    console.log('[Sync Conversations] Syncing for page:', facebookPageId, forceFull ? '(FORCE FULL SYNC)' : '');
 
     // Get page access token and last sync time from database
     const supabase = await createClient();
@@ -70,15 +70,18 @@ export async function POST(request: NextRequest) {
     let totalEventsCreated = 0;
     
     // Incremental sync: only fetch conversations updated since last sync
-    const lastSyncTime = page.last_synced_at;
+    // Unless forceFull is true, then ignore last_synced_at
+    const lastSyncTime = forceFull ? null : page.last_synced_at;
     const sinceParam = lastSyncTime ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` : '';
     
     let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
 
-    const syncMode = lastSyncTime ? 'incremental' : 'full';
+    const syncMode = forceFull ? 'full (forced)' : (lastSyncTime ? 'incremental' : 'full');
     console.log(`[Sync Conversations] Starting ${syncMode} sync for page:`, facebookPageId);
-    if (lastSyncTime) {
+    if (lastSyncTime && !forceFull) {
       console.log('[Sync Conversations] Only fetching conversations updated since:', lastSyncTime);
+    } else if (forceFull) {
+      console.log('[Sync Conversations] FORCE FULL SYNC - Fetching ALL conversations (ignoring last sync time)');
     }
 
         // Fetch all pages of conversations from Facebook

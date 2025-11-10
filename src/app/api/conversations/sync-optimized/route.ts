@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const userId = user.id;
     const body = await request.json();
-    const { pageId, facebookPageId, maxConversations = MAX_CONVERSATIONS_PER_SYNC } = body;
+    const { pageId, facebookPageId, maxConversations = MAX_CONVERSATIONS_PER_SYNC, forceFull = false } = body;
 
     if (!pageId || !facebookPageId) {
       return NextResponse.json(
@@ -79,15 +79,19 @@ export async function POST(request: NextRequest) {
       errors: []
     };
 
-    // Incremental sync
-    const lastSyncTime = page.last_synced_at;
+    // Incremental sync (unless forceFull is true)
+    const lastSyncTime = forceFull ? null : page.last_synced_at;
     const sinceParam = lastSyncTime 
       ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` 
       : '';
     
     let nextUrl = `https://graph.facebook.com/v18.0/${page.facebook_page_id}/conversations?fields=participants,updated_time,messages.limit(25){message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
 
-    console.log('[Sync Optimized] Sync mode:', lastSyncTime ? 'incremental' : 'full');
+    const syncMode = forceFull ? 'full (forced)' : (lastSyncTime ? 'incremental' : 'full');
+    console.log('[Sync Optimized] Sync mode:', syncMode);
+    if (forceFull) {
+      console.log('[Sync Optimized] FORCE FULL SYNC - Fetching ALL conversations');
+    }
 
     // Fetch and process in batches
     while (nextUrl && stats.totalFetched < maxConversations) {
