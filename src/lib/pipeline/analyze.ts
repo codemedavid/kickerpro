@@ -1,57 +1,119 @@
 import { createClient } from '@/lib/supabase/server';
 
-// Google Gemini AI configuration
-const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY || '';
+// Google Gemini AI configuration with key rotation
+const GEMINI_API_KEYS = [
+  process.env.GOOGLE_AI_API_KEY,
+  process.env.GOOGLE_AI_API_KEY_2,
+  process.env.GOOGLE_AI_API_KEY_3,
+  process.env.GOOGLE_AI_API_KEY_4,
+  process.env.GOOGLE_AI_API_KEY_5,
+  process.env.GOOGLE_AI_API_KEY_6,
+  process.env.GOOGLE_AI_API_KEY_7,
+  process.env.GOOGLE_AI_API_KEY_8,
+  process.env.GOOGLE_AI_API_KEY_9
+].filter((key): key is string => !!key);
+
+if (GEMINI_API_KEYS.length > 0) {
+  console.log(`[Pipeline Analyze] 🚀 Loaded ${GEMINI_API_KEYS.length} Gemini API key(s) for rotation`);
+  console.log(`[Pipeline Analyze] 📊 Combined rate limit: ${GEMINI_API_KEYS.length * 15} requests/minute`);
+}
+
+let currentKeyIndex = 0;
+
+function getNextApiKey(): string {
+  if (GEMINI_API_KEYS.length === 0) {
+    throw new Error('No GOOGLE_AI_API_KEY configured');
+  }
+  const key = GEMINI_API_KEYS[currentKeyIndex];
+  currentKeyIndex = (currentKeyIndex + 1) % GEMINI_API_KEYS.length;
+  return key;
+}
+
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL = 'gemini-2.0-flash-exp'; // Fast and capable model
 
 async function callGeminiAPI(prompt: string, systemInstruction: string): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GOOGLE_AI_API_KEY not configured');
-  }
+  // Try with key rotation on rate limit errors
+  let lastError: Error | null = null;
+  const maxRetries = GEMINI_API_KEYS.length;
 
-  const response = await fetch(
-    `${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const apiKey = getNextApiKey();
+      
+      if (attempt > 0) {
+        console.log(`[Pipeline Analyze] Retry ${attempt} with key #${currentKeyIndex}`);
+      }
+
+      const response = await fetch(
+        `${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [
               {
-                text: systemInstruction + '\n\n' + prompt
+                parts: [
+                  {
+                    text: systemInstruction + '\n\n' + prompt
+                  }
+                ]
               }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.9,
-          maxOutputTokens: 2000,
-          responseMimeType: 'application/json'
+            ],
+            generationConfig: {
+              temperature: 0.3,
+              topK: 40,
+              topP: 0.9,
+              maxOutputTokens: 2000,
+              responseMimeType: 'application/json'
+            }
+          })
         }
-      })
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        const errorMessage = error.error?.message || response.statusText;
+        
+        // If rate limit error, try next key
+        if (response.status === 429 || errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
+          lastError = new Error(`Rate limit: ${errorMessage}`);
+          console.warn(`[Pipeline Analyze] Key #${currentKeyIndex} rate limited, trying next key...`);
+          continue;
+        }
+        
+        throw new Error(`Gemini API error: ${errorMessage}`);
+      }
+
+      const data = await response.json();
+      const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!content) {
+        const finishReason = data.candidates?.[0]?.finishReason;
+        throw new Error(`No content in Gemini response. Finish reason: ${finishReason || 'unknown'}`);
+      }
+
+      return content;
+      
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      // If rate limit, continue to next key
+      if (lastError.message.includes('quota') || lastError.message.includes('rate limit') || lastError.message.includes('Rate limit')) {
+        console.warn(`[Pipeline Analyze] Key failed, trying next key...`);
+        continue;
+      }
+      
+      // For other errors, throw immediately
+      throw error;
     }
-  );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Gemini API error: ${error.error?.message || response.statusText}`);
   }
-
-  const data = await response.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!content) {
-    const finishReason = data.candidates?.[0]?.finishReason;
-    throw new Error(`No content in Gemini response. Finish reason: ${finishReason || 'unknown'}`);
-  }
-
-  return content;
+  
+  // All keys failed
+  console.error(`[Pipeline Analyze] All ${GEMINI_API_KEYS.length} API keys failed`);
+  throw lastError || new Error('All API keys failed');
 }
 
 interface StageAnalysisResult {
