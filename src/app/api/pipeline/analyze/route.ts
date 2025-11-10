@@ -126,6 +126,9 @@ export async function POST(request: NextRequest) {
               .join('\n');
           }
         }
+        
+        console.log(`[Pipeline Analyze API] 📋 Contact: ${opp.sender_name}`);
+        console.log(`[Pipeline Analyze API] 💬 Conversation history:`, conversationHistory);
 
         // Step 1: Global Analysis - Ask AI which stage the contact should be in
         const globalPrompt = `${settings.global_analysis_prompt}
@@ -168,6 +171,8 @@ Respond ONLY with a JSON object in this exact format:
         const globalAnalysis: GlobalAnalysisResult = JSON.parse(
           globalResponse.choices[0].message.content || '{}'
         );
+        
+        console.log(`[Pipeline Analyze API] 🌐 Global AI recommendation:`, globalAnalysis.recommended_stage, `(confidence: ${globalAnalysis.confidence})`);
 
         // Step 2: Stage-Specific Analysis - Test each stage's specific criteria
         const stageAnalyses: StageAnalysisResult[] = [];
@@ -217,6 +222,8 @@ Respond ONLY with a JSON object in this exact format:
             confidence: stageAnalysis.confidence || 0,
             reasoning: stageAnalysis.reasoning || ''
           });
+          
+          console.log(`[Pipeline Analyze API] 📍 Stage "${stage.name}": belongs=${stageAnalysis.belongs}, confidence=${stageAnalysis.confidence}`);
         }
 
         // Step 3: Decision Logic (improved)
@@ -309,6 +316,13 @@ Respond ONLY with a JSON object in this exact format:
             });
         }
 
+        const finalStageName = stages.find(s => s.id === finalStageId)?.name || 'Unknown';
+        const matchingStages = stageAnalyses.filter(sa => sa.belongs).map(sa => sa.stage_name);
+        
+        console.log(`[Pipeline Analyze API] 🎯 FINAL DECISION: "${finalStageName}"`);
+        console.log(`[Pipeline Analyze API] ✅ Both agreed: ${bothAgreed}, Confidence: ${finalConfidence}`);
+        console.log(`[Pipeline Analyze API] 📊 Matching stages:`, matchingStages.length > 0 ? matchingStages.join(', ') : 'None');
+        
         results.push({
           opportunity_id: opp.id,
           contact_name: opp.sender_name,
@@ -316,7 +330,7 @@ Respond ONLY with a JSON object in this exact format:
           both_agreed: bothAgreed,
           confidence: finalConfidence,
           global_recommendation: globalAnalysis.recommended_stage,
-          stage_specific_matches: stageAnalyses.filter(sa => sa.belongs).map(sa => sa.stage_name)
+          stage_specific_matches: matchingStages
         });
       } catch (error) {
         console.error(`[Pipeline Analyze] Error analyzing opportunity ${opp.id}:`, error);

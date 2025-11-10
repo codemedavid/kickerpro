@@ -329,6 +329,8 @@ Respond ONLY with a JSON object in this exact format:
             confidence: stageAnalysis.confidence || 0,
             reasoning: stageAnalysis.reasoning || ''
           });
+          
+          console.log(`[Pipeline Analyze] 📍 Stage "${stage.name}": belongs=${stageAnalysis.belongs}, confidence=${stageAnalysis.confidence}`);
         }
 
         // Step 3: Decision Logic (improved)
@@ -421,6 +423,13 @@ Respond ONLY with a JSON object in this exact format:
             });
         }
 
+        const finalStageName = stages.find(s => s.id === finalStageId)?.name || 'Unknown';
+        const matchingStages = stageAnalyses.filter(sa => sa.belongs).map(sa => sa.stage_name);
+        
+        console.log(`[Pipeline Analyze] 🎯 FINAL DECISION: "${finalStageName}"`);
+        console.log(`[Pipeline Analyze] ✅ Both agreed: ${bothAgreed}, Confidence: ${finalConfidence}`);
+        console.log(`[Pipeline Analyze] 📊 Matching stages:`, matchingStages.length > 0 ? matchingStages.join(', ') : 'None');
+        
         results.push({
           opportunity_id: opp.id,
           contact_name: opp.sender_name,
@@ -428,10 +437,8 @@ Respond ONLY with a JSON object in this exact format:
           both_agreed: bothAgreed,
           confidence: finalConfidence,
           global_recommendation: globalAnalysis.recommended_stage,
-          stage_specific_matches: stageAnalyses.filter(sa => sa.belongs).map(sa => sa.stage_name)
+          stage_specific_matches: matchingStages
         });
-
-        console.log(`[Pipeline Analyze] ✅ Analyzed ${opp.sender_name}: ${bothAgreed ? 'Agreed' : 'Disagreed'}, confidence: ${finalConfidence}`);
 
       } catch (error) {
         console.error(`[Pipeline Analyze] Error analyzing opportunity ${opp.id}:`, error);
