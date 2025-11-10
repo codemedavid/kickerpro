@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { 
   MessageSquare, 
-  RefreshCw,
   Users,
   Clock,
   Search,
@@ -34,7 +33,6 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { TagFilter } from '@/components/ui/tag-filter';
 import { ConversationTags } from '@/components/ui/conversation-tags';
 import { TagSelector } from '@/components/ui/tag-selector';
-import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { GeminiQuotaIndicatorCompact } from '@/components/GeminiQuotaIndicator';
 
 interface Conversation {
@@ -58,15 +56,6 @@ interface FacebookPage {
 const ITEMS_PER_PAGE = 20;
 // No limit on bulk selection - unlimited contacts can be selected
 
-type SyncSummary = {
-  inserted: number;
-  updated: number;
-  total: number;
-  timestamp: string;
-  pageId: string;
-  pageName: string;
-};
-
 export default function ConversationsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -88,14 +77,7 @@ export default function ConversationsPage() {
   const [bulkTagIds, setBulkTagIds] = useState<string[]>([]);
   const [bulkTagAction, setBulkTagAction] = useState<'assign' | 'remove' | 'replace'>('assign');
   const [isBulkTagDialogOpen, setIsBulkTagDialogOpen] = useState(false);
-  const [syncInProgress, setSyncInProgress] = useState(false);
-  const [syncTargetPageId, setSyncTargetPageId] = useState<string | null>(null);
-  const [syncBaselineCount, setSyncBaselineCount] = useState(0);
-  const [realtimeStats, setRealtimeStats] = useState<{ inserts: number; updates: number }>({ inserts: 0, updates: 0 });
-  const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
   const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
-
-  const supabase = useMemo(() => createSupabaseClient(), []);
 
   // Fetch connected pages
   const { data: pages = [] } = useQuery<FacebookPage[]>({
@@ -179,233 +161,6 @@ export default function ConversationsPage() {
     hasPrev: false
   };
 
-  useEffect(() => {
-    if (!syncInProgress || !syncTargetPageId) return;
-
-    const channel = supabase
-      .channel(`messenger-conversations-sync-${syncTargetPageId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messenger_conversations',
-          filter: `page_id=eq.${syncTargetPageId}`
-        },
-        () => {
-          setRealtimeStats(prev => ({ ...prev, inserts: prev.inserts + 1 }));
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messenger_conversations',
-          filter: `page_id=eq.${syncTargetPageId}`
-        },
-        () => {
-          setRealtimeStats(prev => ({ ...prev, updates: prev.updates + 1 }));
-        }
-      )
-      .subscribe();
-
-    console.log('[Conversations] Realtime subscription started for page:', syncTargetPageId);
-
-    return () => {
-      supabase.removeChannel(channel);
-      console.log('[Conversations] Realtime subscription stopped for page:', syncTargetPageId);
-    };
-  }, [supabase, syncInProgress, syncTargetPageId]);
-
-  // Sync conversations mutation
-  const syncMutation = useMutation({
-    mutationFn: async (pageData: { pageId: string; facebookPageId: string }) => {
-      // Use streaming endpoint for real-time progress
-      const response = await fetch('/api/conversations/sync-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pageData)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to start sync');
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let finalResult = { inserted: 0, updated: 0 };
-
-      if (reader) {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = JSON.parse(line.slice(6));
-                  
-                  // Update real-time stats
-                  if (data.inserted !== undefined) {
-                    setRealtimeStats({ 
-                      inserts: data.inserted, 
-                      updates: data.updated 
-                    });
-                  }
-
-                  // Handle retry notifications
-                  if (data.status === 'retrying' || data.status === 'db_retrying') {
-                    toast({
-                      title: "Retrying...",
-                      description: data.message || `Retrying batch ${data.batch}...`,
-                      variant: "default"
-                    });
-                  }
-
-                  // Handle batch failures
-                  if (data.status === 'batch_failed' || data.status === 'batch_db_failed') {
-                    toast({
-                      title: "Batch Warning",
-                      description: data.message || `Batch ${data.batch} failed, continuing...`,
-                      variant: "destructive"
-                    });
-                  }
-
-                  // Handle timeout/limit warnings
-                  if (data.status === 'timeout_warning' || data.status === 'batch_limit_warning') {
-                    toast({
-                      title: "Sync Limit Reached",
-                      description: data.message,
-                      variant: "default"
-                    });
-                  }
-
-                  // Show progress toasts
-                  if (data.status === 'batch_complete') {
-                    toast({
-                      title: `Batch ${data.batch} Complete`,
-                      description: `Synced ${data.total} conversations${data.failedBatches > 0 ? ` (${data.failedBatches} batch${data.failedBatches !== 1 ? 'es' : ''} failed)` : ''}...`,
-                    });
-                  }
-
-                  // Final result (both complete and complete_with_errors)
-                  if (data.status === 'complete' || data.status === 'complete_with_errors') {
-                    finalResult = {
-                      inserted: data.inserted,
-                      updated: data.updated
-                    };
-                    
-                    // Show warning if there were failures
-                    if (data.status === 'complete_with_errors') {
-                      toast({
-                        title: "Sync Complete with Warnings",
-                        description: data.message,
-                        variant: "default"
-                      });
-                    }
-                  }
-                }
-              }
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      }
-
-      return finalResult;
-    },
-    onMutate: (variables) => {
-      setSyncInProgress(true);
-      setRealtimeStats({ inserts: 0, updates: 0 });
-      setSyncBaselineCount(pagination.total);
-      setSyncTargetPageId(variables.facebookPageId);
-    },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      const pageName =
-        pages.find(p => p.facebook_page_id === variables.facebookPageId)?.name ||
-        'Facebook Page';
-
-      setRealtimeStats({
-        inserts: data.inserted ?? 0,
-        updates: data.updated ?? 0
-      });
-
-      setLastSyncSummary({
-        inserted: data.inserted ?? 0,
-        updated: data.updated ?? 0,
-        total: (data.inserted ?? 0) + (data.updated ?? 0),
-        timestamp: new Date().toISOString(),
-        pageId: variables.facebookPageId,
-        pageName
-      });
-
-      toast({
-        title: "Sync Complete!",
-        description: `Synced ${(data.inserted ?? 0) + (data.updated ?? 0)} conversation(s) from Facebook`
-      });
-
-      // Trigger contact timing computation if new conversations were added
-      if (data.inserted && data.inserted > 0) {
-        toast({
-          title: "Computing Contact Times",
-          description: "Analyzing best times to contact...",
-        });
-        
-        fetch('/api/contact-timing/compute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recompute_all: true })
-        })
-          .then(res => res.json())
-          .then(result => {
-            if (result.success) {
-              toast({
-                title: "Contact Timing Ready!",
-                description: `Computed times for ${result.processed} contacts`,
-              });
-            }
-          })
-          .catch(error => {
-            console.error('Error computing contact times:', error);
-          });
-      }
-    },
-    onError: (error) => {
-      toast({
-        title: "Sync Failed",
-        description: error instanceof Error ? error.message : "Failed to sync conversations",
-        variant: "destructive"
-      });
-    },
-    onSettled: () => {
-      setSyncInProgress(false);
-      setSyncTargetPageId(null);
-    }
-  });
-
-  const handleSync = () => {
-    if (selectedPageId === 'all') {
-      toast({
-        title: "Select a Page",
-        description: "Please select a specific page to sync conversations from Facebook",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const page = pages.find(p => p.facebook_page_id === selectedPageId);
-    if (!page) return;
-
-    syncMutation.mutate({
-      pageId: page.id,
-      facebookPageId: page.facebook_page_id
-    });
-  };
 
   const clearFilters = () => {
     setStartDate('');
@@ -872,60 +627,8 @@ export default function ConversationsPage() {
               </div>
             </>
           )}
-          <Button 
-            onClick={handleSync}
-            disabled={syncMutation.isPending || selectedPageId === 'all'}
-            className="bg-[#1877f2] hover:bg-[#166fe5]"
-          >
-            {syncMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                Syncing... {realtimeStats.inserts + realtimeStats.updates > 0 && `(${realtimeStats.inserts + realtimeStats.updates})`}
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 w-4 h-4" />
-                Sync from Facebook
-              </>
-            )}
-          </Button>
         </div>
       </div>
-
-      {syncInProgress && syncTargetPageId && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-blue-900">
-                Syncing {syncTargetPageName || 'Facebook Page'}...
-              </p>
-              <p className="text-sm text-blue-800 mt-1">
-                Inserted {realtimeStats.inserts} • Updated {realtimeStats.updates}
-              </p>
-              <p className="text-xs text-blue-700 mt-2">
-                Starting count: {syncBaselineCount} • Total so far: {syncTotalProgress}
-              </p>
-            </div>
-            <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-          </CardContent>
-        </Card>
-      )}
-
-      {!syncInProgress && lastSyncSummary && lastSyncSummary.pageId === selectedPageId && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="p-4">
-            <p className="text-sm font-semibold text-green-900">
-              Last sync ({lastSyncSummary.pageName})
-            </p>
-            <p className="text-sm text-green-800 mt-1">
-              Inserted {lastSyncSummary.inserted} • Updated {lastSyncSummary.updated} • Total touched {lastSyncSummary.total}
-            </p>
-            <p className="text-xs text-green-700 mt-2">
-              {formatDistanceToNow(new Date(lastSyncSummary.timestamp), { addSuffix: true })}
-            </p>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1237,34 +940,9 @@ export default function ConversationsPage() {
               </h3>
               <p className="text-muted-foreground mb-6">
                 {totalCount === 0
-                  ? selectedPageId === 'all'
-                    ? 'Select a page and click "Sync from Facebook" to load conversations'
-                    : 'Click "Sync from Facebook" to load conversations for this page'
+                  ? 'Your conversations will appear here once people message your Facebook page'
                   : 'Try adjusting your filters'}
               </p>
-              {selectedPageId !== 'all' && totalCount === 0 && (
-                <Button 
-                  onClick={handleSync}
-                  disabled={syncMutation.isPending}
-                  className="bg-[#1877f2] hover:bg-[#166fe5]"
-                >
-                  {syncMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                      Syncing... {realtimeStats.inserts + realtimeStats.updates > 0 && 
-                        <span className="ml-2 font-bold text-blue-600">
-                          ({realtimeStats.inserts + realtimeStats.updates} synced)
-                        </span>
-                      }
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="mr-2 w-4 h-4" />
-                      Sync from Facebook
-                    </>
-                  )}
-                </Button>
-              )}
             </div>
           ) : (
             <>
@@ -1406,7 +1084,6 @@ export default function ConversationsPage() {
               <div className="space-y-2 text-sm text-muted-foreground">
                 <ol className="list-decimal list-inside space-y-1">
                   <li>Select a Facebook page from the filter to see its conversations</li>
-                  <li>Click &quot;Sync from Facebook&quot; to load latest conversations</li>
                   <li>Check the boxes next to contacts you want to message</li>
                   <li>Click &quot;Send to X Selected&quot; button</li>
                   <li>You&apos;ll be taken to Compose page with selected contacts</li>
