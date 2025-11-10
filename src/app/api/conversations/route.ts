@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    // Use unified authentication
+    const user = await getFacebookAuthUser();
 
-    if (!userId) {
+    if (!user || !(await hasFacebookToken(user))) {
       return NextResponse.json(
-        { error: 'Not authenticated' },
+        { error: 'Not authenticated or missing Facebook token' },
         { status: 401 }
       );
     }
+
+    const userId = user.id;
 
     const { searchParams } = new URL(request.url);
     const includeTags = searchParams.get('include_tags')?.split(',').filter(Boolean) || [];

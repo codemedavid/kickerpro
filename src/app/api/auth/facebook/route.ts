@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
       tokenExpiresInDays: tokenExpiresIn ? Math.floor(tokenExpiresIn / 86400) : null
     });
 
-    // Set user ID cookie
+    // Set user ID cookie (new standard)
     response.cookies.set('fb-user-id', userId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -238,6 +238,17 @@ export async function POST(request: NextRequest) {
       maxAge: cookieMaxAge,
       path: '/'
     });
+
+    // BACKWARD COMPATIBILITY: Also set fb-auth-user for legacy endpoints
+    // Many existing API routes still use 'fb-auth-user' cookie
+    response.cookies.set('fb-auth-user', userId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: cookieMaxAge,
+      path: '/'
+    });
+    console.log('[Facebook Auth] Set both fb-user-id and fb-auth-user cookies for compatibility');
 
     // Set token expiration cookie for frontend timer widget
     // This cookie is readable by JavaScript so the UI can show accurate countdown
