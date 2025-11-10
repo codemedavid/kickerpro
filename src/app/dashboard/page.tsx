@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/use-auth';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
+import { FacebookConnectionCard } from '@/components/facebook/facebook-connection-card';
 
 interface Stats {
   messagesSent: number;
@@ -165,6 +166,9 @@ export default function DashboardPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Facebook Connection */}
+      <FacebookConnectionCard />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

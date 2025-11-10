@@ -1,130 +1,197 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+/**
+ * Get User's Facebook Pages
+ * Fetches and syncs Facebook Pages for the authenticated user
+ */
 
-interface FacebookPageData {
-  id: string;
-  name: string;
-  category?: string;
-  access_token: string;
-  picture?: {
-    data?: {
-      url?: string;
-    };
-  };
-  fan_count?: number;
-}
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { getUserPages } from '@/lib/facebook/token-manager';
 
-interface FacebookResponse {
-  data?: FacebookPageData[];
-  error?: {
-    message: string;
-    code?: number;
-  };
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get('fb-access-token')?.value;
-    const userId = cookieStore.get('fb-auth-user')?.value;
-
-    console.log('[Facebook Pages API] Cookie check:', {
-      hasAccessToken: !!accessToken,
-      hasUserId: !!userId,
-      tokenPreview: accessToken ? `${accessToken.substring(0, 20)}...` : 'none'
-    });
-
-    if (!accessToken) {
-      console.error('[Facebook Pages API] No access token found in cookies');
-      console.error('[Facebook Pages API] Available cookies:', cookieStore.getAll().map(c => c.name));
-      
+    const supabase = await createClient();
+    
+    // Get current authenticated user
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    
+    if (!authUser) {
       return NextResponse.json(
-        { 
-          error: 'Not authenticated with Facebook',
-          hint: 'Please logout and login again to refresh your access token'
-        },
+        { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    console.log('[Facebook Pages API] Fetching ALL pages from Facebook Graph API with pagination...');
+    // Get user's Facebook token from database
+    const { data: user, error: fetchError } = await supabase
+      .from('users')
+      .select('facebook_access_token')
+      .eq('id', authUser.id)
+      .single();
 
-    // Fetch ALL pages using pagination (supports unlimited pages)
-    let allPages: FacebookPageData[] = [];
-    let nextUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,access_token,picture{url},fan_count&limit=100&access_token=${accessToken}`;
-    let batchCount = 0;
-    const MAX_BATCHES = 50; // Safety limit: 50 batches × 100 = 5000 pages max
+    if (fetchError || !user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
 
-    while (nextUrl && batchCount < MAX_BATCHES) {
-      batchCount++;
-      console.log(`[Facebook Pages API] 📄 Fetching batch ${batchCount}...`);
+    if (!user.facebook_access_token) {
+      return NextResponse.json(
+        { error: 'No Facebook token found. Please connect your Facebook account first.' },
+        { status: 400 }
+      );
+    }
 
-      const response = await fetch(nextUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+    // Fetch pages from Facebook
+    const pagesData = await getUserPages(user.facebook_access_token);
+
+    if (!pagesData.data || pagesData.data.length === 0) {
+      return NextResponse.json({
+        pages: [],
+        message: 'No Facebook Pages found for this account',
+      });
+    }
+
+    // Sync pages to database
+    const pagesToUpsert = pagesData.data.map((page) => ({
+      user_id: authUser.id,
+      facebook_page_id: page.id,
+      name: page.name,
+      category: page.category,
+      profile_picture: page.picture?.data?.url,
+      follower_count: page.followers_count || 0,
+      access_token: page.access_token,
+      is_active: true,
+    }));
+
+    // Upsert pages (insert or update)
+    const { error: upsertError } = await supabase
+      .from('facebook_pages')
+      .upsert(pagesToUpsert, {
+        onConflict: 'user_id,facebook_page_id',
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('[Facebook Pages API] ❌ Facebook API error:', error);
-        throw new Error(error.error?.message || 'Failed to fetch pages from Facebook');
-      }
-
-      const data: FacebookResponse & { paging?: { next?: string } } = await response.json();
-
-      if (data.error) {
-        console.error('[Facebook Pages API] ❌ Facebook returned error:', data.error);
-        throw new Error(data.error.message);
-      }
-
-      // Add pages from this batch
-      if (data.data && data.data.length > 0) {
-        allPages = allPages.concat(data.data);
-        console.log(`[Facebook Pages API] ✅ Batch ${batchCount}: Got ${data.data.length} pages. Total: ${allPages.length}`);
-      } else {
-        console.log(`[Facebook Pages API] ⚠️  Batch ${batchCount}: No pages in this batch`);
-      }
-
-      // Check if there's a next page
-      nextUrl = data.paging?.next || null;
-      
-      if (nextUrl) {
-        console.log('[Facebook Pages API] 📄 More pages available, fetching next batch...');
-      } else {
-        console.log('[Facebook Pages API] ✅ Reached end of pages');
-      }
+    if (upsertError) {
+      console.error('Error syncing pages:', upsertError);
+      throw upsertError;
     }
 
-    if (batchCount >= MAX_BATCHES) {
-      console.warn(`[Facebook Pages API] ⚠️  Stopped at ${MAX_BATCHES} batches (safety limit)`);
-    }
-
-    console.log(`[Facebook Pages API] 🎉 Fetched ALL ${allPages.length} pages from Facebook in ${batchCount} batch(es)`);
-
+    // Return synced pages
     return NextResponse.json({
-      success: true,
-      pages: allPages,
-      count: allPages.length
+      pages: pagesData.data.map((page) => ({
+        id: page.id,
+        name: page.name,
+        category: page.category,
+        picture: page.picture?.data?.url,
+        followers_count: page.followers_count || 0,
+      })),
+      message: `Successfully synced ${pagesData.data.length} pages`,
     });
   } catch (error) {
-    console.error('[Facebook Pages API] Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch Facebook pages';
+    console.error('Get pages error:', error);
+    
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'Failed to fetch pages';
     
     return NextResponse.json(
-      { 
-        error: errorMessage,
-        success: false
-      },
+      { error: errorMessage },
       { status: 500 }
     );
   }
 }
 
+/**
+ * Manually sync a specific page
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    
+    // Get current authenticated user
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    
+    if (!authUser) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
+    const body = await request.json();
+    const { pageId, action } = body;
 
+    if (!pageId) {
+      return NextResponse.json(
+        { error: 'Page ID is required' },
+        { status: 400 }
+      );
+    }
 
+    // Handle different actions
+    if (action === 'toggle') {
+      // Toggle page active status
+      const { data: page, error: fetchError } = await supabase
+        .from('facebook_pages')
+        .select('is_active')
+        .eq('facebook_page_id', pageId)
+        .eq('user_id', authUser.id)
+        .single();
 
+      if (fetchError || !page) {
+        return NextResponse.json(
+          { error: 'Page not found' },
+          { status: 404 }
+        );
+      }
 
+      const { error: updateError } = await supabase
+        .from('facebook_pages')
+        .update({ is_active: !page.is_active })
+        .eq('facebook_page_id', pageId)
+        .eq('user_id', authUser.id);
 
+      if (updateError) {
+        throw updateError;
+      }
+
+      return NextResponse.json({
+        message: 'Page status updated',
+        is_active: !page.is_active,
+      });
+    }
+
+    if (action === 'delete') {
+      // Remove page from database
+      const { error: deleteError } = await supabase
+        .from('facebook_pages')
+        .delete()
+        .eq('facebook_page_id', pageId)
+        .eq('user_id', authUser.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      return NextResponse.json({
+        message: 'Page removed successfully',
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'Invalid action' },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error('Page action error:', error);
+    
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'Failed to perform action';
+    
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: 500 }
+    );
+  }
+}

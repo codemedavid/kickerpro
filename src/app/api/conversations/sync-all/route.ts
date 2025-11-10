@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { batchFetchConversations } from '@/lib/facebook/batch-api';
+import { withPooledClient } from '@/lib/supabase/pool';
 
-// Sync all pages in parallel for maximum speed
+// Sync all pages using Facebook Batch API for maximum speed
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
@@ -15,13 +17,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Sync All] Starting parallel sync for all pages...');
+    console.log('[Sync All⚡] Starting ultra-fast batch sync...');
+    const startTime = Date.now();
 
-    // Get all pages for this user
+    // Get all pages for this user with access tokens
     const supabase = await createClient();
     const { data: pages, error: pagesError } = await supabase
       .from('facebook_pages')
-      .select('id, facebook_page_id, name')
+      .select('id, facebook_page_id, name, access_token, last_synced_at')
       .eq('user_id', userId)
       .eq('is_active', true);
 
@@ -32,37 +35,90 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[Sync All] Found ${pages.length} pages to sync`);
+    console.log(`[Sync All⚡] Batch fetching ${pages.length} pages...`);
 
-    // Sync all pages in parallel
-    const syncPromises = pages.map(async (page) => {
+    // Use Facebook Batch API to fetch all conversations in parallel
+    const conversationsByPage = await batchFetchConversations(
+      pages.map(p => ({
+        facebookPageId: p.facebook_page_id,
+        accessToken: p.access_token,
+        lastSyncTime: p.last_synced_at
+      }))
+    );
+
+    console.log(`[Sync All⚡] Fetched conversations in ${Date.now() - startTime}ms`);
+
+    // Process all conversations with connection pooling
+    const results = await Promise.all(pages.map(async (page) => {
+      const conversations = conversationsByPage.get(page.facebook_page_id) || [];
+      
       try {
-        const response = await fetch(`${request.nextUrl.origin}/api/conversations/sync`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': request.headers.get('cookie') || ''
-          },
-          body: JSON.stringify({
-            pageId: page.id,
-            facebookPageId: page.facebook_page_id
-          })
-        });
+        let insertedCount = 0;
+        let updatedCount = 0;
 
-        const result = await response.json();
-        
+        if (conversations.length > 0) {
+          await withPooledClient(async (supabase) => {
+            // Prepare bulk payload
+            const conversationPayloads = [];
+            
+            for (const conv of conversations) {
+              const participants = conv.participants?.data || [];
+              const lastTime = conv.updated_time || new Date().toISOString();
+
+              for (const participant of participants) {
+                if (participant.id === page.facebook_page_id) continue;
+
+                conversationPayloads.push({
+                  user_id: userId,
+                  page_id: page.facebook_page_id,
+                  sender_id: participant.id,
+                  sender_name: participant.name || 'Facebook User',
+                  last_message_time: lastTime,
+                  conversation_status: 'active'
+                });
+              }
+            }
+
+            // Bulk upsert
+            if (conversationPayloads.length > 0) {
+              const { data: upsertedRows } = await supabase
+                .from('messenger_conversations')
+                .upsert(conversationPayloads, { 
+                  onConflict: 'page_id,sender_id',
+                  ignoreDuplicates: false 
+                })
+                .select('id, created_at, updated_at');
+
+              if (upsertedRows) {
+                for (const row of upsertedRows) {
+                  if (row.created_at === row.updated_at) {
+                    insertedCount++;
+                  } else {
+                    updatedCount++;
+                  }
+                }
+              }
+            }
+
+            // Update last sync time
+            await supabase
+              .from('facebook_pages')
+              .update({ last_synced_at: new Date().toISOString() })
+              .eq('id', page.id);
+          });
+        }
+
         return {
           pageId: page.facebook_page_id,
           pageName: page.name,
-          success: result.success,
-          synced: result.synced || 0,
-          inserted: result.inserted || 0,
-          updated: result.updated || 0,
-          syncMode: result.syncMode || 'full',
-          error: result.error
+          success: true,
+          synced: insertedCount + updatedCount,
+          inserted: insertedCount,
+          updated: updatedCount,
+          syncMode: page.last_synced_at ? 'incremental' : 'full'
         };
       } catch (error) {
-        console.error(`[Sync All] Error syncing page ${page.name}:`, error);
+        console.error(`[Sync All⚡] Error processing ${page.name}:`, error);
         return {
           pageId: page.facebook_page_id,
           pageName: page.name,
@@ -73,10 +129,7 @@ export async function POST(request: NextRequest) {
           error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
-    });
-
-    // Wait for all syncs to complete
-    const results = await Promise.all(syncPromises);
+    }));
 
     // Calculate totals
     const totals = results.reduce((acc, result) => ({
@@ -93,14 +146,16 @@ export async function POST(request: NextRequest) {
       failureCount: 0
     });
 
-    console.log('[Sync All] Parallel sync completed:', totals);
+    const duration = Date.now() - startTime;
+    console.log(`[Sync All⚡] Completed in ${duration}ms:`, totals);
 
     return NextResponse.json({
       success: true,
       totalPages: pages.length,
       results: results,
       totals: totals,
-      message: `Synced ${totals.totalSynced} conversations across ${totals.successCount} page(s) in parallel`
+      duration: duration,
+      message: `Ultra-fast sync: ${totals.totalSynced} conversations across ${totals.successCount} page(s) in ${duration}ms`
     });
   } catch (error) {
     console.error('[Sync All] Error:', error);

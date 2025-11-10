@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { withPooledClient } from '@/lib/supabase/pool';
+import { invalidateConversationCache, setCached, getCached } from '@/lib/redis/client';
 
 // Webhook verification (GET request from Facebook)
 export async function GET(request: NextRequest) {
@@ -81,56 +83,71 @@ async function handleMessage(event: WebhookEvent) {
   const messageText = event.message?.text;
   const timestamp = event.timestamp;
 
-  console.log(`Message from ${senderId} to ${recipientId}: ${messageText}`);
+  console.log(`[Webhook⚡] Message from ${senderId} to ${recipientId}`);
+  const startTime = Date.now();
 
   try {
-    const supabase = await createClient();
+    // Use connection pooling for faster database access
+    await withPooledClient(async (supabase) => {
+      // Check cache for page user_id first
+      const cacheKey = `page:${recipientId}:user`;
+      let userId = await getCached<string>(cacheKey);
 
-    // Find the user who owns this page
-    const { data: page } = await supabase
-      .from('facebook_pages')
-      .select('user_id')
-      .eq('facebook_page_id', recipientId)
-      .single();
+      if (!userId) {
+        // Cache miss - fetch from database
+        const { data: page } = await supabase
+          .from('facebook_pages')
+          .select('user_id')
+          .eq('facebook_page_id', recipientId)
+          .single();
 
-    if (!page) {
-      console.log(`No page found for Facebook page ID: ${recipientId}`);
-      return;
-    }
+        if (!page) {
+          console.log(`[Webhook⚡] No page found for: ${recipientId}`);
+          return;
+        }
 
-    // Save or update conversation
-    const payload = {
-      user_id: page.user_id,
-      page_id: recipientId,
-      sender_id: senderId,
-      sender_name: 'Facebook User', // We'd need to fetch this from Facebook Graph API
-      last_message: messageText,
-      last_message_time: new Date(timestamp).toISOString(),
-      conversation_status: 'active'
-    };
+        userId = page.user_id;
+        // Cache for 5 minutes
+        await setCached(cacheKey, userId, 300);
+      }
 
-    const attemptUpsert = async (onConflict: string) =>
-      supabase
-        .from('messenger_conversations')
-        .upsert(payload, {
-          onConflict,
-          ignoreDuplicates: false
-        });
+      // Save conversation with optimized upsert
+      const payload = {
+        user_id: userId,
+        page_id: recipientId,
+        sender_id: senderId,
+        sender_name: 'Facebook User',
+        last_message: messageText,
+        last_message_time: new Date(timestamp).toISOString(),
+        conversation_status: 'active'
+      };
 
-    let { error } = await attemptUpsert('page_id,sender_id');
+      const attemptUpsert = async (onConflict: string) =>
+        supabase
+          .from('messenger_conversations')
+          .upsert(payload, {
+            onConflict,
+            ignoreDuplicates: false
+          });
 
-    if (error && error.code === '42P10') {
-      console.warn('[Webhook] Missing unique constraint for new key. Retrying with legacy key.');
-      ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
-    }
+      let { error } = await attemptUpsert('page_id,sender_id');
 
-    if (error) {
-      console.error('Error saving conversation:', error);
-    } else {
-      console.log('Conversation saved successfully');
-    }
+      if (error && error.code === '42P10') {
+        ({ error } = await attemptUpsert('user_id,page_id,sender_id'));
+      }
+
+      if (error) {
+        console.error('[Webhook⚡] Error saving:', error.message);
+      } else {
+        // Invalidate conversation cache for instant UI updates
+        await invalidateConversationCache(recipientId!);
+        
+        const duration = Date.now() - startTime;
+        console.log(`[Webhook⚡] ✓ Saved in ${duration}ms`);
+      }
+    });
   } catch (error) {
-    console.error('Error handling message:', error);
+    console.error('[Webhook⚡] Error:', error);
   }
 }
 
