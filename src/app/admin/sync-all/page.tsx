@@ -31,6 +31,7 @@ export default function SyncAllPage() {
   const [syncing, setSyncing] = useState(false);
   const [results, setResults] = useState<SyncResult[]>([]);
   const [currentPage, setCurrentPage] = useState<string | null>(null);
+  const [fixing, setFixing] = useState(false);
 
   // Fetch all pages
   const { data: pages = [], isLoading } = useQuery<FacebookPage[]>({
@@ -52,6 +53,30 @@ export default function SyncAllPage() {
       })));
     }
   }, [pages, results.length]);
+
+  const fixAllSync = async () => {
+    setFixing(true);
+    
+    try {
+      const response = await fetch('/api/fix-all-sync', {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(`✅ Cleared timestamps for ${data.details.pagesCleared} pages! Now syncing...`);
+        // Automatically start sync after clearing
+        await syncAllPages();
+      } else {
+        toast.error('Failed to clear timestamps: ' + data.error);
+      }
+    } catch (error) {
+      toast.error('Error: ' + (error instanceof Error ? error.message : 'Failed'));
+    } finally {
+      setFixing(false);
+    }
+  };
 
   const syncAllPages = async () => {
     setSyncing(true);
@@ -228,11 +253,31 @@ export default function SyncAllPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-col">
+            <Button
+              onClick={fixAllSync}
+              disabled={syncing || fixing || pages.length === 0}
+              size="lg"
+              className="w-full bg-green-600 hover:bg-green-700"
+            >
+              {fixing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Fixing & Syncing...
+                </>
+              ) : (
+                <>
+                  <Zap className="mr-2 h-4 w-4" />
+                  🔧 FIX & SYNC ALL ({pages.length} pages) - Get EVERYTHING
+                </>
+              )}
+            </Button>
+            
             <Button
               onClick={syncAllPages}
-              disabled={syncing || pages.length === 0}
+              disabled={syncing || fixing || pages.length === 0}
               size="lg"
+              variant="outline"
               className="w-full"
             >
               {syncing ? (
@@ -243,7 +288,7 @@ export default function SyncAllPage() {
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Force Full Sync ALL Pages ({pages.length})
+                  Just Sync ALL Pages ({pages.length})
                 </>
               )}
             </Button>

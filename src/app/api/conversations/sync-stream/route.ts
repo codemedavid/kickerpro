@@ -51,17 +51,16 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // Incremental sync: only fetch conversations updated since last sync
-        const lastSyncTime = page.last_synced_at;
-        const syncMode = lastSyncTime ? 'incremental' : 'full';
-        const sinceParam = lastSyncTime ? `&since=${Math.floor(new Date(lastSyncTime).getTime() / 1000)}` : '';
+        // PERMANENT FIX: ALWAYS FULL SYNC
+        // Incremental sync disabled permanently to prevent missing conversations
+        const syncMode = 'full';
+        const sinceParam = '';  // Always fetch ALL conversations
 
         send({ 
           status: 'fetching', 
-          message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync from ${page.name}...`,
+          message: `Full sync from ${page.name} (fetching ALL conversations)...`,
           pageName: page.name,
-          syncMode: syncMode,
-          lastSyncTime: lastSyncTime
+          syncMode: syncMode
         });
 
         const effectiveFacebookPageId = page.facebook_page_id;
@@ -307,7 +306,7 @@ export async function POST(request: NextRequest) {
         // Final summary
         send({
           status: 'complete',
-          message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync completed!`,
+          message: `Full sync completed! Fetched ALL conversations.`,
           inserted: insertedCount,
           updated: updatedCount,
           skipped: skippedCount,

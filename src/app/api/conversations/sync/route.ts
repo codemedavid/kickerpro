@@ -69,41 +69,20 @@ export async function POST(request: NextRequest) {
     let totalConversations = 0;
     let totalEventsCreated = 0;
     
-    // IMPROVED APPROACH: Smart sync detection
-    // - Default to FULL sync (always get everything)
-    // - Only use incremental if synced within last 15 minutes
-    // - This prevents missing conversations while still being efficient
+    // PERMANENT FIX: ALWAYS FULL SYNC
+    // Incremental sync causes too many issues with missing conversations
+    // It's better to always fetch ALL conversations to ensure data completeness
+    // Facebook API is fast enough that this isn't a performance problem
     
-    const now = new Date();
-    const lastSyncTime = page.last_synced_at ? new Date(page.last_synced_at) : null;
-    const minutesSinceSync = lastSyncTime 
-      ? (now.getTime() - lastSyncTime.getTime()) / (1000 * 60) 
-      : Infinity;
+    // ALWAYS use full sync - never incremental
+    // This ensures no conversations are ever missed
+    const sinceParam = '';  // No since parameter = fetch ALL
     
-    // Only use incremental if synced very recently (< 15 minutes)
-    // This prevents missing conversations from incremental mode issues
-    const useIncremental = !forceFull && lastSyncTime && minutesSinceSync < 15;
-    const sinceParam = useIncremental 
-      ? `&since=${Math.floor(lastSyncTime.getTime() / 1000)}` 
-      : '';
-    
-    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}${sinceParam}&access_token=${page.access_token}`;
+    let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=${FACEBOOK_API_LIMIT}&access_token=${page.access_token}`;
 
-    const syncMode = useIncremental ? 'incremental' : 'full';
-    console.log(`[Sync Conversations] Starting ${syncMode} sync for page:`, facebookPageId);
-    console.log('[Sync Conversations] Sync decision:', {
-      forceFull,
-      lastSyncedAt: page.last_synced_at,
-      minutesSinceSync: minutesSinceSync.toFixed(1),
-      useIncremental,
-      reason: useIncremental 
-        ? 'Recent sync (<15 min) - using incremental'
-        : forceFull 
-          ? 'Forced full sync'
-          : !lastSyncTime 
-            ? 'Never synced - using full'
-            : 'Old sync (>15 min) - using full for safety'
-    });
+    const syncMode = 'full';
+    console.log(`[Sync Conversations] ALWAYS FULL SYNC - Fetching ALL conversations for page:`, facebookPageId);
+    console.log('[Sync Conversations] Incremental sync DISABLED permanently to prevent missing conversations');
 
         // Fetch all pages of conversations from Facebook
     while (nextUrl && totalConversations < MAX_CONVERSATIONS_PER_SYNC) {
@@ -391,7 +370,7 @@ export async function POST(request: NextRequest) {
       computeContactTiming: insertedCount > 0,
       duration: totalDuration + 's',
       speed: conversationsPerSecond + ' conversations/sec',
-      message: `${syncMode === 'incremental' ? 'Incremental' : 'Full'} sync: ${uniqueSynced} conversation(s) with ${totalEventsCreated} events in ${totalDuration}s`
+      message: `Full sync: ${uniqueSynced} conversation(s) with ${totalEventsCreated} events in ${totalDuration}s (fetched ALL conversations)`
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);
