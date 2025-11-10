@@ -1,21 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
+import { fetchWithRetry, getUserFriendlyErrorMessage } from '@/lib/facebook/rate-limit-handler';
 
 // Facebook API settings
 const FACEBOOK_API_LIMIT = 100;
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    // Use unified authentication
+    const user = await getFacebookAuthUser();
 
-    if (!userId) {
+    if (!user || !(await hasFacebookToken(user))) {
       return NextResponse.json(
-        { error: 'Not authenticated' },
+        { error: 'Not authenticated or missing Facebook token' },
         { status: 401 }
       );
     }
+
+    const userId = user.id;
 
     const body = await request.json();
     const { pageId, facebookPageId } = body;
@@ -71,15 +74,24 @@ export async function POST(request: NextRequest) {
       console.log('[Sync Conversations] Only fetching conversations updated since:', lastSyncTime);
     }
 
-    // Fetch all pages of conversations from Facebook
+        // Fetch all pages of conversations from Facebook
     while (nextUrl) {
       console.log('[Sync Conversations] Fetching batch...');
-      const response = await fetch(nextUrl);
       
-      if (!response.ok) {
-        const error = await response.json();
+      let response: Response;
+      try {
+        // Use rate limit aware fetch with automatic retry
+        response = await fetchWithRetry(nextUrl, {
+          maxRetries: 3,
+          baseDelay: 1000,
+          maxDelay: 32000,
+        });
+      } catch (error) {
         console.error('[Sync Conversations] Facebook API error:', error);
-        throw new Error(error.error?.message || 'Failed to fetch conversations');
+        const errorMessage = error instanceof Error 
+          ? error.message 
+          : 'Failed to fetch conversations';
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -290,11 +302,25 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[Sync Conversations] Error:', error);
+    
+    // Try to parse Facebook error for user-friendly message
+    let errorMessage = 'Failed to sync conversations';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      
+      // Check if it's a rate limit error
+      if (errorMessage.includes('Rate limit')) {
+        statusCode = 429;
+      } else if (errorMessage.includes('expired') || errorMessage.includes('Invalid token')) {
+        statusCode = 401;
+      }
+    }
+    
     return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to sync conversations'
-      },
-      { status: 500 }
+      { error: errorMessage },
+      { status: statusCode }
     );
   }
 }

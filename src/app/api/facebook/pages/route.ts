@@ -6,15 +6,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getUserPages, debugToken } from '@/lib/facebook/token-manager';
-import { cookies } from 'next/headers';
+import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
 
 export async function GET(_request: NextRequest) {
   try {
-    // Use cookie-based authentication (matches app's auth pattern)
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    // Use unified authentication
+    const user = await getFacebookAuthUser();
     
-    if (!userId) {
+    if (!user || !(await hasFacebookToken(user))) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized - Please log in with Facebook' },
         { status: 401 }
@@ -23,29 +22,8 @@ export async function GET(_request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Get user's Facebook token from database (with expiration)
-    const { data: user, error: fetchError } = await supabase
-      .from('users')
-      .select('facebook_access_token, facebook_token_expires_at')
-      .eq('id', userId)
-      .single();
-
-    if (fetchError || !user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    if (!user.facebook_access_token) {
-      return NextResponse.json(
-        { error: 'No Facebook token found. Please connect your Facebook account first.' },
-        { status: 400 }
-      );
-    }
-
     // Fetch pages from Facebook
-    const pagesData = await getUserPages(user.facebook_access_token);
+    const pagesData = await getUserPages(user.facebook_access_token!);
 
     if (!pagesData.data || pagesData.data.length === 0) {
       return NextResponse.json({
@@ -78,7 +56,7 @@ export async function GET(_request: NextRequest) {
         }
         
         return {
-          user_id: userId,
+          user_id: user.id,
           facebook_page_id: page.id,
           name: page.name,
           category: page.category,
@@ -139,11 +117,10 @@ export async function GET(_request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Use cookie-based authentication (matches app's auth pattern)
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    // Use unified authentication
+    const user = await getFacebookAuthUser();
     
-    if (!userId) {
+    if (!user || !(await hasFacebookToken(user))) {
       return NextResponse.json(
         { error: 'Unauthorized - Please log in with Facebook' },
         { status: 401 }
@@ -169,7 +146,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .select('is_active')
         .eq('facebook_page_id', pageId)
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .single();
 
       if (fetchError || !page) {
@@ -183,7 +160,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .update({ is_active: !page.is_active })
         .eq('facebook_page_id', pageId)
-        .eq('user_id', userId);
+        .eq('user_id', user.id);
 
       if (updateError) {
         throw updateError;
@@ -201,7 +178,7 @@ export async function POST(request: NextRequest) {
         .from('facebook_pages')
         .delete()
         .eq('facebook_page_id', pageId)
-        .eq('user_id', userId);
+        .eq('user_id', user.id);
 
       if (deleteError) {
         throw deleteError;

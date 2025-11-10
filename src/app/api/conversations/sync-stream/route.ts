@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
+import { fetchWithRetry } from '@/lib/facebook/rate-limit-handler';
 
 // Enable streaming
 export const runtime = 'nodejs';
@@ -15,14 +16,16 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const cookieStore = await cookies();
-        const userId = cookieStore.get('fb-auth-user')?.value;
+        // Use unified authentication
+        const user = await getFacebookAuthUser();
 
-        if (!userId) {
-          send({ error: 'Not authenticated', status: 'error' });
+        if (!user || !(await hasFacebookToken(user))) {
+          send({ error: 'Not authenticated or missing Facebook token', status: 'error' });
           controller.close();
           return;
         }
+
+        const userId = user.id;
 
         const body = await request.json();
         const { pageId, facebookPageId } = body;
@@ -81,12 +84,17 @@ export async function POST(request: NextRequest) {
             batch: batchNumber
           });
 
-          const response = await fetch(nextUrl);
-          
-          if (!response.ok) {
-            const error = await response.json();
+          let response: Response;
+          try {
+            // Use rate limit aware fetch with automatic retry
+            response = await fetchWithRetry(nextUrl, {
+              maxRetries: 3,
+              baseDelay: 1000,
+              maxDelay: 32000,
+            });
+          } catch (error) {
             send({ 
-              error: error.error?.message || 'Failed to fetch conversations',
+              error: error instanceof Error ? error.message : 'Failed to fetch conversations',
               status: 'error'
             });
             controller.close();

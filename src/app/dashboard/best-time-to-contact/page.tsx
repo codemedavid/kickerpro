@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -160,12 +160,7 @@ export default function BestTimeToContactPage() {
     enabled: !!user?.id
   });
 
-  useEffect(() => {
-    fetchRecommendations();
-    fetchConversationStats();
-  }, [sortBy, minConfidence, pagination.offset, selectedPageId]);
-
-  const fetchConversationStats = async () => {
+  const fetchConversationStats = useCallback(async () => {
     try {
       const params = new URLSearchParams({ limit: '1' });
       if (selectedPageId !== 'all') {
@@ -182,7 +177,77 @@ export default function BestTimeToContactPage() {
     } catch (error) {
       console.error('Error fetching conversation stats:', error);
     }
-  };
+  }, [selectedPageId]);
+
+  const fetchRecommendations = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        limit: pagination.limit.toString(),
+        offset: pagination.offset.toString(),
+        sort_by: sortBy,
+        sort_order: 'desc',
+        min_confidence: minConfidence,
+        active_only: 'true',
+        search: searchTerm,
+      });
+
+      // Add page filter if specific page selected
+      if (selectedPageId !== 'all') {
+        params.set('page_id', selectedPageId);
+      }
+
+      const response = await fetch(`/api/contact-timing/recommendations?${params}`);
+      const data: ApiResponse = await response.json();
+
+      if (data.success) {
+        setRecommendations(data.data);
+        setPagination(data.pagination);
+      } else {
+        throw new Error('Failed to fetch recommendations');
+      }
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+      toast.error('Failed to load recommendations');
+    } finally {
+      setLoading(false);
+    }
+  }, [sortBy, minConfidence, pagination.limit, pagination.offset, searchTerm, selectedPageId]);
+
+  useEffect(() => {
+    fetchRecommendations();
+    fetchConversationStats();
+  }, [fetchRecommendations, fetchConversationStats]);
+
+  const handleComputeAll = useCallback(async () => {
+    try {
+      setComputing(true);
+      toast.info('Computing contact timing for all conversations. This may take a moment...');
+      
+      const params = new URLSearchParams();
+      if (selectedPageId !== 'all') {
+        params.set('page_id', selectedPageId);
+      }
+      
+      const response = await fetch(`/api/contact-timing/compute?${params}`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(`Computed timing for ${data.conversationsComputed} conversation(s)`);
+      } else {
+        toast.error(data.error || 'Failed to compute contact timing');
+      }
+    } catch (error) {
+      console.error('Error computing all:', error);
+      toast.error('Failed to compute contact timing');
+    } finally {
+      setComputing(false);
+      fetchRecommendations();
+    }
+  }, [selectedPageId, fetchRecommendations]);
 
   // Auto-compute if no recommendations exist
   useEffect(() => {
@@ -211,42 +276,7 @@ export default function BestTimeToContactPage() {
     };
 
     checkAndAutoCompute();
-  }, [loading, recommendations.length, pagination.total, selectedPageId]);
-
-  const fetchRecommendations = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        limit: pagination.limit.toString(),
-        offset: pagination.offset.toString(),
-        sort_by: sortBy,
-        sort_order: 'desc',
-        min_confidence: minConfidence,
-        active_only: 'true',
-        search: searchTerm,
-      });
-
-      // Add page filter if specific page selected
-      if (selectedPageId !== 'all') {
-        params.set('page_id', selectedPageId);
-      }
-
-      const response = await fetch(`/api/contact-timing/recommendations?${params}`);
-      const data: ApiResponse = await response.json();
-
-      if (data.success) {
-        setRecommendations(data.data);
-        setPagination(data.pagination);
-      } else {
-        toast.error('Failed to load recommendations');
-      }
-    } catch (error) {
-      console.error('Error fetching recommendations:', error);
-      toast.error('Failed to load recommendations');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loading, recommendations.length, pagination.total, selectedPageId, computing, handleComputeAll]);
 
   const handleSeedEvents = async () => {
     try {
@@ -275,33 +305,6 @@ export default function BestTimeToContactPage() {
       toast.error('Failed to seed events');
     } finally {
       setSeeding(false);
-    }
-  };
-
-  const handleComputeAll = async () => {
-    try {
-      setComputing(true);
-      toast.info('Computing best contact times...');
-
-      const response = await fetch('/api/contact-timing/compute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recompute_all: true }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success(`Computed times for ${data.processed} contacts in ${(data.duration_ms / 1000).toFixed(1)}s`);
-        fetchRecommendations();
-      } else {
-        toast.error('Failed to compute contact times');
-      }
-    } catch (error) {
-      console.error('Error computing times:', error);
-      toast.error('Failed to compute contact times');
-    } finally {
-      setComputing(false);
     }
   };
 
