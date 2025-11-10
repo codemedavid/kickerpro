@@ -233,18 +233,19 @@ export async function GET() {
     }
 
     // Summary
-    const allChecksPassed = Object.values(diagnostics.checks).every((check: { status?: string }) => 
-      check.status?.includes('✅')
-    );
+    const allChecksPassed = Object.values(diagnostics.checks).every((check) => {
+      const checkObj = check as { status?: string };
+      return checkObj.status?.includes('✅');
+    });
 
     diagnostics.summary = {
       overall_status: allChecksPassed ? '✅ All checks passed' : '⚠️ Some issues found',
-      database_accessible: diagnostics.checks.connection?.status?.includes('✅'),
-      messages_table_exists: diagnostics.checks.total_messages?.status?.includes('✅'),
-      can_query_messages: diagnostics.checks.messages_by_status?.status?.includes('✅'),
-      total_messages_in_db: diagnostics.checks.messages_by_status?.total || 0,
-      scheduled_messages_count: diagnostics.checks.scheduled_messages?.count || 0,
-      service_role_working: diagnostics.checks.write_permission?.status?.includes('✅')
+      database_accessible: (diagnostics.checks.connection as { status?: string })?.status?.includes('✅'),
+      messages_table_exists: (diagnostics.checks.total_messages as { status?: string })?.status?.includes('✅'),
+      can_query_messages: (diagnostics.checks.messages_by_status as { status?: string })?.status?.includes('✅'),
+      total_messages_in_db: (diagnostics.checks.messages_by_status as { total?: number })?.total || 0,
+      scheduled_messages_count: (diagnostics.checks.scheduled_messages as { count?: number })?.count || 0,
+      service_role_working: (diagnostics.checks.write_permission as { status?: string })?.status?.includes('✅')
     };
 
     return NextResponse.json(diagnostics, {

@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
           completed_at: b.completed_at,
           has_recipients: Array.isArray(b.recipients) && b.recipients.length > 0
         })),
-        diagnosis: diagnoseIssue(message, batches, page, stuckFor)
+        diagnosis: page ? diagnoseIssue(message, batches, page, stuckFor) : { issues: ['Page not found'], recommendations: ['Check page connection'], severity: 'critical' }
       });
     }
 
@@ -158,10 +158,12 @@ function diagnoseIssue(
     issues.push(`${processing.length} batch(es) stuck in 'processing' status`);
     
     processing.forEach(b => {
-      if (b.started_at) {
-        const processingTime = Math.floor((Date.now() - new Date(b.started_at).getTime()) / 1000);
+      const startedAt = b.started_at as string | undefined;
+      if (startedAt) {
+        const processingTime = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
         if (processingTime > 300) { // 5 minutes
-          issues.push(`Batch ${b.batch_number} has been processing for ${Math.floor(processingTime / 60)} minutes`);
+          const batchNumber = b.batch_number as number;
+          issues.push(`Batch ${batchNumber} has been processing for ${Math.floor(processingTime / 60)} minutes`);
         }
       }
     });
@@ -173,8 +175,8 @@ function diagnoseIssue(
   // Check 4: All batches completed but message still sending
   const allCompleted = batches.every(b => b.status === 'completed');
   if (allCompleted) {
-    const totalSent = batches.reduce((sum, b) => sum + (b.sent_count || 0), 0);
-    const totalFailed = batches.reduce((sum, b) => sum + (b.failed_count || 0), 0);
+    const totalSent = batches.reduce((sum, b) => sum + (Number(b.sent_count) || 0), 0);
+    const totalFailed = batches.reduce((sum, b) => sum + (Number(b.failed_count) || 0), 0);
     
     issues.push('All batches completed but message status not updated');
     issues.push(`${totalSent} sent, ${totalFailed} failed`);

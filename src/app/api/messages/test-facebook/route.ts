@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function getFacebookErrorRecommendations(error: { code?: number; error_subcode?: number; message?: string } | null): string[] {
+function getFacebookErrorRecommendations(error: { code?: number; error_subcode?: number; message?: string; type?: string } | null): string[] {
   if (!error) return [];
 
   const recommendations: string[] = [];

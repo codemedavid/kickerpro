@@ -165,7 +165,7 @@ export async function POST(
     }
 
     // Start processing batches asynchronously
-    const processingPromise = processRetryBatchesAsync(messageId, totalBatches, request);
+    const processingPromise = processRetryBatchesAsync(messageId, totalBatches);
     
     processingPromise.catch(error => {
       console.error('[Resend API] Background retry processing error:', error);
@@ -200,14 +200,13 @@ async function processRetryBatchesAsync(messageId: string, totalBatches: number)
       console.log(`[Resend API] 🚀 Processing retry batch ${batchIndex + 1}/${totalBatches}`);
       
       try {
-        const origin = request.nextUrl.origin;
+        const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
         const batchResponse = await fetch(
           `${origin}/api/messages/${messageId}/batches/process`,
           {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
-              Cookie: request.headers.get('cookie') || ''
+              'Content-Type': 'application/json'
             },
             signal: AbortSignal.timeout(120000) // 2 minute timeout per batch
           }

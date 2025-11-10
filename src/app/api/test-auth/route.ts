@@ -3,7 +3,13 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 export async function GET() {
-  const tests: Record<string, unknown> = {
+  const tests: {
+    timestamp: string;
+    environment: Record<string, unknown>;
+    supabase: Record<string, unknown>;
+    adminClient: Record<string, unknown>;
+    summary?: Record<string, unknown>;
+  } = {
     timestamp: new Date().toISOString(),
     environment: {},
     supabase: {},

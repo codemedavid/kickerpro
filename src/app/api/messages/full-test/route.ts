@@ -261,8 +261,8 @@ export async function GET(_request: NextRequest) {
     }
 
     // Final Summary
-    const passed = results.tests.filter((t: { status: string }) => t.status === 'pass').length;
-    const failed = results.tests.filter((t: { status: string }) => t.status === 'fail').length;
+    const passed = results.tests.filter(t => (t as { status: string }).status === 'pass').length;
+    const failed = results.tests.filter(t => (t as { status: string }).status === 'fail').length;
 
     results.summary = {
       total_tests: results.tests.length,

@@ -87,7 +87,19 @@ async function createRedisClient(): Promise<RedisClient> {
         console.log('[Redis] Connected successfully');
       });
 
-      return redis;
+      // Wrap ioredis to match our interface
+      return {
+        get: async (key: string) => await redis.get(key),
+        set: async (key: string, value: string, ex?: number) => {
+          if (ex) {
+            await redis.set(key, value, 'EX', ex);
+          } else {
+            await redis.set(key, value);
+          }
+        },
+        del: async (key: string) => { await redis.del(key); },
+        exists: async (key: string) => (await redis.exists(key)) === 1
+      };
     } catch {
       console.warn('[Redis] ioredis not installed, using memory cache. Install with: npm install ioredis');
     }

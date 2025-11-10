@@ -85,7 +85,8 @@ function diagnoseLatestMessage(
 
   if (message.status === 'scheduled') {
     const now = new Date();
-    const scheduledTime = new Date(message.scheduled_for);
+    const scheduledFor = message.scheduled_for as string | null;
+    const scheduledTime = scheduledFor ? new Date(scheduledFor) : new Date();
     const isPast = scheduledTime <= now;
     
     if (isPast) {
@@ -99,7 +100,8 @@ function diagnoseLatestMessage(
   }
 
   // Check recipients
-  if (!message.selected_recipients || message.selected_recipients.length === 0) {
+  const selectedRecipients = message.selected_recipients as string[] | null | undefined;
+  if (!selectedRecipients || selectedRecipients.length === 0) {
     issues.push('NO RECIPIENTS SELECTED!');
     actions.push('Cannot send without recipients');
     return { issues, actions, severity: 'critical' };
