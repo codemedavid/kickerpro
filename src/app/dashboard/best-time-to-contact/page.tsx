@@ -349,9 +349,20 @@ export default function BestTimeToContactPage() {
 
     setBulkUpdating(true);
     const conversationIds = Array.from(selectedContactIds);
+    
+    // Show which contacts are being updated
+    const selectedContacts = recommendations.filter(r => 
+      selectedContactIds.has(r.conversation_id)
+    );
     console.log('[Bulk Timezone Update] Starting update:', {
       count: conversationIds.length,
       timezone: bulkTimezone,
+      conversation_ids: conversationIds,
+      contacts: selectedContacts.map(c => ({
+        name: c.sender_name,
+        current_timezone: c.timezone,
+        conversation_id: c.conversation_id
+      }))
     });
 
     try {
@@ -365,23 +376,39 @@ export default function BestTimeToContactPage() {
       });
 
       const data = await response.json();
-      console.log('[Bulk Timezone Update] API Response:', data);
+      console.log('[Bulk Timezone Update] API Response:', {
+        status: response.status,
+        ok: response.ok,
+        data
+      });
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to bulk update timezone');
+        console.error('[Bulk Timezone Update] API Error:', data);
+        throw new Error(data.error || data.details || 'Failed to bulk update timezone');
       }
 
-      toast.success(`Updated ${data.count} contact(s)! Recomputing best times...`);
-      
-      setBulkTimezoneDialogOpen(false);
-      setBulkTimezone('');
-      setSelectedContactIds(new Set());
-      
-      // Refresh recommendations after a short delay
-      setTimeout(() => {
-        console.log('[Bulk Timezone Update] Refreshing recommendations...');
-        fetchRecommendations();
-      }, 2000);
+      if (data.success) {
+        toast.success(`Updated ${data.count} contact(s)! Recomputing best times...`);
+        
+        setBulkTimezoneDialogOpen(false);
+        setBulkTimezone('');
+        setSelectedContactIds(new Set());
+        
+        // Force immediate refresh
+        console.log('[Bulk Timezone Update] Force refreshing in 3 seconds...');
+        setTimeout(() => {
+          console.log('[Bulk Timezone Update] Refreshing NOW...');
+          fetchRecommendations();
+        }, 3000);
+        
+        // Also refresh after recompute likely completes
+        setTimeout(() => {
+          console.log('[Bulk Timezone Update] Second refresh (after recompute)...');
+          fetchRecommendations();
+        }, 10000);
+      } else {
+        throw new Error('Update reported as not successful');
+      }
     } catch (error) {
       console.error('[Bulk Timezone Update] Error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to update timezones');

@@ -114,9 +114,11 @@ export async function POST(request: NextRequest) {
     console.log('[Bulk Update Timezone API] Success!');
     return NextResponse.json({
       success: true,
-      message: `Updated ${conversation_ids.length} contact(s)`,
-      count: conversation_ids.length,
+      message: `Updated ${count || conversation_ids.length} contact(s)`,
+      count: count || conversation_ids.length,
+      requested_count: conversation_ids.length,
       timezone,
+      conversation_ids_sent: conversation_ids,
     });
   } catch (error) {
     console.error('[Bulk Update Timezone API] Unhandled error:', error);
