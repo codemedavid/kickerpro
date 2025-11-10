@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json(

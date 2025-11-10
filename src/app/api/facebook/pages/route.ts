@@ -7,12 +7,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getUserPages, debugToken } from '@/lib/facebook/token-manager';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 export async function GET(request: NextRequest) {
   try {
     // Use cookie-based authentication (matches app's auth pattern)
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     
     if (!userId) {
       return NextResponse.json(
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
   try {
     // Use cookie-based authentication (matches app's auth pattern)
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     
     if (!userId) {
       return NextResponse.json(

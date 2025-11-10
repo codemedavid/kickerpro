@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 
 /**
  * Create a test scheduled message
@@ -11,7 +12,7 @@ import { cookies } from 'next/headers';
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-user-id')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ 

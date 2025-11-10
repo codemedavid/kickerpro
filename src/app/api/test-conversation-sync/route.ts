@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
     
     if (!userId) {
       return NextResponse.json({ error: 'Not logged in' }, { status: 401 });

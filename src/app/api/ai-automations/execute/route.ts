@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAuthenticatedUserId } from '@/lib/auth/cookies';
 import { createClient } from '@/lib/supabase/server';
 import { openRouterService } from '@/lib/ai/openrouter';
 
@@ -16,7 +17,7 @@ export async function POST() {
     console.log('[AI Automation] Execution started');
     
     const cookieStore = await cookies();
-    const userId = cookieStore.get('fb-auth-user')?.value;
+    const userId = getAuthenticatedUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
