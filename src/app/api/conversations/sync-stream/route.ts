@@ -424,19 +424,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Update after each batch
-          send({
-            status: 'batch_complete',
-            message: `Batch ${batchNumber} complete`,
-            batch: batchNumber,
-            inserted: insertedCount,
-            updated: updatedCount,
-            total: insertedCount + updatedCount,
-            failedBatches: failedBatches,
-            skipped: skippedCount
-          });
-
-          // Move to next page
+          // Move to next page immediately (continuous sync)
           nextUrl = data.paging?.next || null;
           
           // If there's no next page, we're done
@@ -444,6 +432,8 @@ export async function POST(request: NextRequest) {
             console.log('[Sync Stream] No more pages to fetch, sync complete');
             break;
           }
+          
+          // Continue fetching immediately - no delay for continuous sync
         }
 
         // Update last sync timestamp

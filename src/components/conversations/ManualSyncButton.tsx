@@ -39,8 +39,6 @@ interface SyncStatus {
   resumeSession?: string;
   lastSyncTime?: string;
   progress?: number;
-  currentBatch?: number;
-  totalBatches?: number;
   realTimeCount?: number; // Real-time counter for live updates
 }
 
@@ -69,8 +67,7 @@ export function ManualSyncButton({
     setSyncStatus({ 
       status: 'syncing', 
       progress: 0,
-      realTimeCount: 0,
-      currentBatch: 0
+      realTimeCount: 0
     });
 
     try {
@@ -128,15 +125,14 @@ export function ManualSyncButton({
             const data = JSON.parse(message.slice(6)); // Remove 'data: ' prefix
             lastResult = data;
 
-            // Update status based on stream message
-            if (data.status === 'syncing' || data.status === 'batch_complete') {
+            // Update status based on stream message - continuous updates
+            if (data.status === 'syncing' || data.status === 'batch_complete' || data.status === 'processing') {
               setSyncStatus({
                 status: 'syncing',
                 realTimeCount: data.total || 0,
                 inserted: data.inserted || 0,
                 updated: data.updated || 0,
-                currentBatch: data.batch || 0,
-                progress: Math.min((data.total || 0) / 100 * 10, 90) // Estimate progress
+                progress: Math.min((data.total || 0) / 10, 90) // Smooth progress based on count
               });
             } else if (data.status === 'complete' || data.status === 'complete_with_errors') {
               // Final result
@@ -299,29 +295,32 @@ export function ManualSyncButton({
       {showProgress && syncStatus.status === 'syncing' && (
         <div className="space-y-3">
           {/* Big Live Counter */}
-          <div className="flex flex-col items-center justify-center py-2 px-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+          <div className="flex flex-col items-center justify-center py-3 px-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded-lg border-2 border-blue-200 dark:border-blue-800 shadow-sm">
+            <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 tabular-nums animate-pulse">
               {syncStatus.realTimeCount || 0}
             </div>
-            <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-              conversations synced
+            <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">
+              syncing conversations...
             </div>
           </div>
 
           {/* Progress Bar */}
           <Progress value={syncStatus.progress} className="h-2" />
           
-          {/* Stats Row */}
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">
-              {syncStatus.currentBatch ? `Batch ${syncStatus.currentBatch}` : 'Starting...'}
-            </span>
-            {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
-              <span className="text-muted-foreground">
-                <span className="text-green-600 font-medium">{syncStatus.inserted}</span> new • <span className="text-orange-600 font-medium">{syncStatus.updated}</span> updated
+          {/* Stats Row - Centered */}
+          {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
+            <div className="flex items-center justify-center gap-4 text-xs">
+              <span className="flex items-center gap-1">
+                <span className="text-green-600 dark:text-green-400 font-bold text-base">{syncStatus.inserted}</span>
+                <span className="text-muted-foreground">new</span>
               </span>
-            )}
-          </div>
+              <span className="text-muted-foreground">•</span>
+              <span className="flex items-center gap-1">
+                <span className="text-orange-600 dark:text-orange-400 font-bold text-base">{syncStatus.updated}</span>
+                <span className="text-muted-foreground">updated</span>
+              </span>
+            </div>
+          )}
         </div>
       )}
 
