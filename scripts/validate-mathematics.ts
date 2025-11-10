@@ -257,8 +257,9 @@ console.log('──────────────────────�
   bins[38].smoothed_probability = 0.86; // Monday 2pm (4h apart)
   bins[58].smoothed_probability = 0.85; // Tuesday 10am (24h apart)
   
-  const { selectTopWindows } = require('../src/lib/contact-timing/algorithm');
-  const windows = selectTopWindows(bins, config, false);
+  // Import at runtime to avoid build issues
+  const algorithmModule = await import('../src/lib/contact-timing/algorithm');
+  const windows = algorithmModule.selectTopWindows(bins, config, false);
   
   console.log(`Min spacing required: ${config.min_spacing_hours} hours\n`);
   console.log('Selected windows:');
