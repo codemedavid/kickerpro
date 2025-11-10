@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Force Full Sync - Get ALL Conversations</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #0070f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: 600;
+        }
+        button:hover {
+            background: #0051cc;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.show {
+            display: block;
+        }
+        .status.loading {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+        }
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #28a745;
+        }
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #dc3545;
+        }
+        .logs {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+        }
+        .info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #0070f3;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🚀 Force Full Sync - Get ALL Conversations</h1>
+        
+        <div class="info">
+            <strong>⚡ This will fetch ALL conversations from Facebook</strong><br>
+            Uses <code>forceFull: true</code> to ignore incremental sync and get everything!
+        </div>
+
+        <div class="input-group">
+            <label>Page ID (UUID from database)</label>
+            <input type="text" id="pageId" placeholder="e.g., 550e8400-e29b-41d4-a716-446655440000" />
+            <small style="color: #666;">Get this from Supabase → facebook_pages → id column</small>
+        </div>
+
+        <div class="input-group">
+            <label>Facebook Page ID (Numeric)</label>
+            <input type="text" id="facebookPageId" placeholder="e.g., 123456789012345" />
+            <small style="color: #666;">Get this from Supabase → facebook_pages → facebook_page_id column</small>
+        </div>
+
+        <div class="input-group">
+            <label>API Base URL</label>
+            <input type="text" id="apiUrl" value="http://localhost:3000" placeholder="http://localhost:3000 or https://your-domain.vercel.app" />
+        </div>
+
+        <button id="syncButton" onclick="runForceFullSync()">
+            🚀 Force Full Sync - Get ALL Conversations
+        </button>
+
+        <div id="status" class="status"></div>
+        <div id="logs" class="logs" style="display: none;"></div>
+    </div>
+
+    <div class="card">
+        <h2>📝 Instructions</h2>
+        <ol>
+            <li>Get your <strong>Page ID</strong> from Supabase (facebook_pages.id)</li>
+            <li>Get your <strong>Facebook Page ID</strong> from Supabase (facebook_pages.facebook_page_id)</li>
+            <li>Paste them in the fields above</li>
+            <li>Click the button</li>
+            <li>Wait 2-4 minutes for completion</li>
+        </ol>
+
+        <h3 style="margin-top: 20px;">💡 Get IDs from Supabase</h3>
+        <p>Run this SQL query:</p>
+        <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow-x: auto;">SELECT id, facebook_page_id, name 
+FROM facebook_pages;</pre>
+    </div>
+
+    <script>
+        let logEntries = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = `[${timestamp}] ${message}`;
+            logEntries.push(entry);
+            
+            const logsDiv = document.getElementById('logs');
+            logsDiv.style.display = 'block';
+            logsDiv.innerHTML = logEntries.map(e => `<div class="log-entry">${e}</div>`).join('');
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function setStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status show ${type}`;
+            statusDiv.innerHTML = message;
+        }
+
+        async function runForceFullSync() {
+            const pageId = document.getElementById('pageId').value.trim();
+            const facebookPageId = document.getElementById('facebookPageId').value.trim();
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+
+            if (!pageId || !facebookPageId) {
+                setStatus('❌ Please fill in both Page ID and Facebook Page ID', 'error');
+                return;
+            }
+
+            const button = document.getElementById('syncButton');
+            button.disabled = true;
+            logEntries = [];
+            
+            setStatus('🔄 Starting force full sync...', 'loading');
+            log('Initializing force full sync...');
+            log(`Page ID: ${pageId}`);
+            log(`Facebook Page ID: ${facebookPageId}`);
+            log(`API URL: ${apiUrl}`);
+
+            const startTime = Date.now();
+
+            try {
+                log('Sending sync request with forceFull=true...');
+                
+                const response = await fetch(`${apiUrl}/api/conversations/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pageId: pageId,
+                        facebookPageId: facebookPageId,
+                        forceFull: true  // FORCE FULL SYNC!
+                    }),
+                });
+
+                const data = await response.json();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (data.success) {
+                    log(`✅ Sync completed in ${duration} seconds`);
+                    log(`Total conversations: ${data.synced}`);
+                    log(`New conversations: ${data.inserted}`);
+                    log(`Updated conversations: ${data.updated}`);
+                    log(`Events created: ${data.eventsCreated}`);
+                    log(`Sync mode: ${data.syncMode}`);
+                    
+                    setStatus(`
+                        ✅ SUCCESS!<br>
+                        <strong>Synced ${data.synced} conversations in ${duration} seconds</strong><br>
+                        New: ${data.inserted} | Updated: ${data.updated} | Events: ${data.eventsCreated}<br>
+                        Mode: ${data.syncMode}
+                    `, 'success');
+                } else {
+                    log(`❌ Sync failed: ${data.error}`);
+                    setStatus(`❌ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`);
+                setStatus(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
+
