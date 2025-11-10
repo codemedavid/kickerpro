@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getFacebookAuthUser, hasFacebookToken } from '@/lib/facebook/auth-helper';
-import { fetchWithRetry, getUserFriendlyErrorMessage } from '@/lib/facebook/rate-limit-handler';
+import { fetchWithRetry } from '@/lib/facebook/rate-limit-handler';
 
 // Facebook API settings
 const FACEBOOK_API_LIMIT = 100;
+const MAX_CONVERSATIONS_PER_SYNC = 10000; // Hard limit
+const MAX_SYNC_DURATION_MS = 270000; // 4.5 minutes
+
+// Enable extended timeout for large syncs
+export const maxDuration = 300; // 5 minutes (Vercel max)
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  const syncStartTime = Date.now();
   try {
     // Use unified authentication
     const user = await getFacebookAuthUser();
@@ -75,7 +82,20 @@ export async function POST(request: NextRequest) {
     }
 
         // Fetch all pages of conversations from Facebook
-    while (nextUrl) {
+    while (nextUrl && totalConversations < MAX_CONVERSATIONS_PER_SYNC) {
+      // Check timeout
+      const elapsed = Date.now() - syncStartTime;
+      if (elapsed > MAX_SYNC_DURATION_MS) {
+        console.warn('[Sync Conversations] Approaching timeout limit, stopping gracefully');
+        console.log('[Sync Conversations] Partial sync completed:', {
+          totalConversations,
+          insertedCount,
+          updatedCount,
+          elapsed: `${(elapsed / 1000).toFixed(1)}s`
+        });
+        break;
+      }
+
       console.log('[Sync Conversations] Fetching batch...');
       
       let response: Response;
@@ -269,8 +289,22 @@ export async function POST(request: NextRequest) {
       
       if (nextUrl) {
         console.log('[Sync Conversations] More conversations available, fetching next batch...');
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
+
+    // Log final stats
+    const totalDuration = ((Date.now() - syncStartTime) / 1000).toFixed(2);
+    const conversationsPerSecond = (totalConversations / parseFloat(totalDuration)).toFixed(1);
+    console.log('[Sync Conversations] Final stats:', {
+      totalConversations,
+      insertedCount,
+      updatedCount,
+      totalEventsCreated,
+      duration: `${totalDuration}s`,
+      speed: `${conversationsPerSecond} conversations/sec`
+    });
 
     // Update last sync timestamp
     await supabase
