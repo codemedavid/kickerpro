@@ -6,13 +6,28 @@ import { fetchWithRetry } from '@/lib/facebook/rate-limit-handler';
 // Enable streaming
 export const runtime = 'nodejs';
 
+// Configuration constants
+const MAX_SYNC_DURATION_MS = 4.5 * 60 * 1000; // 4.5 minutes to stay under Vercel's 5min limit
+const MAX_BATCHES = 500; // Safety limit to prevent infinite loops
+const BATCH_RETRY_ATTEMPTS = 3;
+const BATCH_RETRY_DELAY_MS = 2000;
+const EVENTS_CHUNK_SIZE = 500;
+
+// Helper to delay execution
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
+  const syncStartTime = Date.now();
   
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch (error) {
+          console.error('[Sync Stream] Error sending data:', error);
+        }
       };
 
       try {
@@ -67,15 +82,45 @@ export async function POST(request: NextRequest) {
         const syncedConversationIds = new Set<string>();
         let insertedCount = 0;
         let updatedCount = 0;
-        const skippedCount = 0;
+        let skippedCount = 0;
         let totalConversations = 0;
         let totalEventsCreated = 0;
         let batchNumber = 0;
+        let failedBatches = 0;
         
         let nextUrl = `https://graph.facebook.com/v18.0/${effectiveFacebookPageId}/conversations?fields=participants,updated_time,messages{message,created_time,from}&limit=100${sinceParam}&access_token=${page.access_token}`;
 
         // Fetch and process conversations with real-time updates
         while (nextUrl) {
+          // Check timeout protection
+          const elapsed = Date.now() - syncStartTime;
+          if (elapsed > MAX_SYNC_DURATION_MS) {
+            console.warn('[Sync Stream] Approaching timeout limit, stopping gracefully');
+            send({
+              status: 'timeout_warning',
+              message: 'Sync approaching time limit, saving progress...',
+              inserted: insertedCount,
+              updated: updatedCount,
+              total: insertedCount + updatedCount,
+              batches: batchNumber
+            });
+            break;
+          }
+
+          // Check batch limit
+          if (batchNumber >= MAX_BATCHES) {
+            console.warn('[Sync Stream] Reached maximum batch limit');
+            send({
+              status: 'batch_limit_warning',
+              message: 'Reached maximum batch limit, saving progress...',
+              inserted: insertedCount,
+              updated: updatedCount,
+              total: insertedCount + updatedCount,
+              batches: batchNumber
+            });
+            break;
+          }
+
           batchNumber++;
           send({ 
             status: 'processing', 
@@ -83,24 +128,64 @@ export async function POST(request: NextRequest) {
             batch: batchNumber
           });
 
-          let response: Response;
-          try {
-            // Use rate limit aware fetch with automatic retry
-            response = await fetchWithRetry(nextUrl, {
-              maxRetries: 3,
-              baseDelay: 1000,
-              maxDelay: 32000,
-            });
-          } catch (error) {
-            send({ 
-              error: error instanceof Error ? error.message : 'Failed to fetch conversations',
-              status: 'error'
-            });
-            controller.close();
-            return;
+          // Fetch conversations with retry
+          let response: Response | null = null;
+          let fetchError: Error | null = null;
+          
+          for (let attempt = 1; attempt <= BATCH_RETRY_ATTEMPTS; attempt++) {
+            try {
+              response = await fetchWithRetry(nextUrl, {
+                maxRetries: 3,
+                baseDelay: 1000,
+                maxDelay: 32000,
+              });
+              fetchError = null;
+              break;
+            } catch (error) {
+              fetchError = error instanceof Error ? error : new Error('Unknown fetch error');
+              console.error(`[Sync Stream] Fetch attempt ${attempt}/${BATCH_RETRY_ATTEMPTS} failed:`, fetchError.message);
+              
+              if (attempt < BATCH_RETRY_ATTEMPTS) {
+                send({
+                  status: 'retrying',
+                  message: `Batch ${batchNumber} failed, retrying (${attempt}/${BATCH_RETRY_ATTEMPTS})...`,
+                  batch: batchNumber,
+                  attempt
+                });
+                await delay(BATCH_RETRY_DELAY_MS * attempt);
+              }
+            }
           }
 
-          const data = await response.json();
+          if (!response || fetchError) {
+            failedBatches++;
+            send({ 
+              status: 'batch_failed',
+              error: fetchError?.message || 'Failed to fetch conversations',
+              message: `Batch ${batchNumber} failed after ${BATCH_RETRY_ATTEMPTS} attempts, continuing with next batch...`,
+              batch: batchNumber,
+              failedBatches
+            });
+            // Try to continue with remaining batches instead of stopping completely
+            continue;
+          }
+
+          let data;
+          try {
+            data = await response.json();
+          } catch (error) {
+            console.error('[Sync Stream] Failed to parse response:', error);
+            failedBatches++;
+            send({
+              status: 'batch_failed',
+              error: 'Invalid response format',
+              message: `Batch ${batchNumber} returned invalid data, continuing...`,
+              batch: batchNumber,
+              failedBatches
+            });
+            continue;
+          }
+
           const conversations = data.data || [];
           totalConversations += conversations.length;
           
@@ -155,24 +240,62 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Bulk upsert all conversations
+          // Process batch with retry logic
           if (conversationPayloads.length > 0) {
-            const attemptUpsert = async (onConflict: string) =>
-              supabase
-                .from('messenger_conversations')
-                .upsert(conversationPayloads, { onConflict, ignoreDuplicates: false })
-                .select('id, sender_id, page_id, created_at, updated_at');
+            let batchProcessed = false;
+            let upsertedRows = null;
 
-            let { data: upsertedRows, error: upsertError } = await attemptUpsert('page_id,sender_id');
+            // Retry database upsert
+            for (let dbAttempt = 1; dbAttempt <= BATCH_RETRY_ATTEMPTS; dbAttempt++) {
+              try {
+                const attemptUpsert = async (onConflict: string) =>
+                  supabase
+                    .from('messenger_conversations')
+                    .upsert(conversationPayloads, { onConflict, ignoreDuplicates: false })
+                    .select('id, sender_id, page_id, created_at, updated_at');
 
-            if (upsertError && upsertError.code === '42P10') {
-              console.warn('[Sync Stream] Missing unique constraint for new key. Retrying with legacy key.');
-              ({ data: upsertedRows, error: upsertError } = await attemptUpsert('user_id,page_id,sender_id'));
+                let { data, error: upsertError } = await attemptUpsert('page_id,sender_id');
+
+                if (upsertError && upsertError.code === '42P10') {
+                  console.warn('[Sync Stream] Missing unique constraint for new key. Retrying with legacy key.');
+                  ({ data, error: upsertError } = await attemptUpsert('user_id,page_id,sender_id'));
+                }
+
+                if (upsertError) {
+                  throw new Error(`Database upsert failed: ${upsertError.message}`);
+                }
+
+                upsertedRows = data;
+                batchProcessed = true;
+                break;
+              } catch (error) {
+                console.error(`[Sync Stream] DB attempt ${dbAttempt}/${BATCH_RETRY_ATTEMPTS} failed:`, error);
+                
+                if (dbAttempt < BATCH_RETRY_ATTEMPTS) {
+                  send({
+                    status: 'db_retrying',
+                    message: `Database error on batch ${batchNumber}, retrying (${dbAttempt}/${BATCH_RETRY_ATTEMPTS})...`,
+                    batch: batchNumber,
+                    attempt: dbAttempt
+                  });
+                  await delay(BATCH_RETRY_DELAY_MS * dbAttempt);
+                } else {
+                  // Final attempt failed
+                  failedBatches++;
+                  skippedCount += conversationPayloads.length;
+                  send({
+                    status: 'batch_db_failed',
+                    error: error instanceof Error ? error.message : 'Database error',
+                    message: `Failed to save batch ${batchNumber} after ${BATCH_RETRY_ATTEMPTS} attempts, skipping ${conversationPayloads.length} conversations...`,
+                    batch: batchNumber,
+                    failedBatches,
+                    skippedCount
+                  });
+                }
+              }
             }
 
-            if (upsertError) {
-              console.error('[Sync Stream] Error bulk upserting conversations:', upsertError);
-            } else if (upsertedRows) {
+            if (batchProcessed && upsertedRows) {
               // Collect all events for bulk insert
               const allEventsToInsert: Array<{
                 user_id: string;
@@ -255,20 +378,35 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // Bulk insert all events at once
+              // Bulk insert all events with retry logic
               if (allEventsToInsert.length > 0) {
                 // Insert in chunks to avoid payload size limits
-                const EVENTS_CHUNK_SIZE = 500;
                 for (let i = 0; i < allEventsToInsert.length; i += EVENTS_CHUNK_SIZE) {
                   const chunk = allEventsToInsert.slice(i, i + EVENTS_CHUNK_SIZE);
-                  const { error: eventsError } = await supabase
-                    .from('contact_interaction_events')
-                    .insert(chunk);
+                  let eventInserted = false;
                   
-                  if (eventsError) {
-                    console.error('[Sync Stream] Error inserting events chunk:', eventsError);
-                  } else {
-                    totalEventsCreated += chunk.length;
+                  // Retry event insertion
+                  for (let eventAttempt = 1; eventAttempt <= BATCH_RETRY_ATTEMPTS; eventAttempt++) {
+                    const { error: eventsError } = await supabase
+                      .from('contact_interaction_events')
+                      .insert(chunk);
+                    
+                    if (eventsError) {
+                      console.error(`[Sync Stream] Error inserting events chunk (attempt ${eventAttempt}/${BATCH_RETRY_ATTEMPTS}):`, eventsError);
+                      
+                      if (eventAttempt < BATCH_RETRY_ATTEMPTS) {
+                        await delay(BATCH_RETRY_DELAY_MS);
+                      }
+                    } else {
+                      totalEventsCreated += chunk.length;
+                      eventInserted = true;
+                      break;
+                    }
+                  }
+                  
+                  if (!eventInserted) {
+                    console.error('[Sync Stream] Failed to insert event chunk after all retries');
+                    // Continue with next chunk instead of failing entire batch
                   }
                 }
               }
@@ -279,7 +417,9 @@ export async function POST(request: NextRequest) {
                 message: `Synced ${insertedCount + updatedCount} conversations...`,
                 inserted: insertedCount,
                 updated: updatedCount,
-                total: insertedCount + updatedCount
+                total: insertedCount + updatedCount,
+                failedBatches: failedBatches,
+                skipped: skippedCount
               });
             }
           }
@@ -291,22 +431,41 @@ export async function POST(request: NextRequest) {
             batch: batchNumber,
             inserted: insertedCount,
             updated: updatedCount,
-            total: insertedCount + updatedCount
+            total: insertedCount + updatedCount,
+            failedBatches: failedBatches,
+            skipped: skippedCount
           });
 
+          // Move to next page
           nextUrl = data.paging?.next || null;
+          
+          // If there's no next page, we're done
+          if (!nextUrl) {
+            console.log('[Sync Stream] No more pages to fetch, sync complete');
+            break;
+          }
         }
 
         // Update last sync timestamp
-        await supabase
-          .from('facebook_pages')
-          .update({ last_synced_at: new Date().toISOString() })
-          .eq('id', pageId);
+        try {
+          await supabase
+            .from('facebook_pages')
+            .update({ last_synced_at: new Date().toISOString() })
+            .eq('id', pageId);
+        } catch (error) {
+          console.error('[Sync Stream] Failed to update last sync timestamp:', error);
+          // Don't fail the entire sync for this
+        }
 
-        // Final summary
+        const syncDuration = ((Date.now() - syncStartTime) / 1000).toFixed(1);
+        const successRate = batchNumber > 0 ? (((batchNumber - failedBatches) / batchNumber) * 100).toFixed(1) : '100';
+
+        // Final summary with comprehensive stats
         send({
-          status: 'complete',
-          message: `Full sync completed! Fetched ALL conversations.`,
+          status: failedBatches > 0 ? 'complete_with_errors' : 'complete',
+          message: failedBatches > 0 
+            ? `Sync completed with ${failedBatches} failed batch${failedBatches !== 1 ? 'es' : ''}. Successfully processed ${batchNumber - failedBatches}/${batchNumber} batches.`
+            : `Full sync completed! Fetched ALL conversations successfully.`,
           inserted: insertedCount,
           updated: updatedCount,
           skipped: skippedCount,
@@ -315,14 +474,19 @@ export async function POST(request: NextRequest) {
           eventsCreated: totalEventsCreated,
           computeContactTiming: insertedCount > 0,
           batches: batchNumber,
+          failedBatches: failedBatches,
+          successRate: `${successRate}%`,
+          duration: `${syncDuration}s`,
           syncMode: syncMode
         });
 
         controller.close();
       } catch (error) {
+        console.error('[Sync Stream] Critical error during sync:', error);
         send({ 
           error: error instanceof Error ? error.message : 'Sync failed',
-          status: 'error'
+          status: 'error',
+          message: 'Critical error occurred during sync. Please try again.'
         });
         controller.close();
       }

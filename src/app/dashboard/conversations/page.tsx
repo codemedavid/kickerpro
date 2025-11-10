@@ -245,35 +245,71 @@ export default function ConversationsPage() {
             const chunk = decoder.decode(value);
             const lines = chunk.split('\n');
 
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = JSON.parse(line.slice(6));
-                
-                // Update real-time stats
-                if (data.inserted !== undefined) {
-                  setRealtimeStats({ 
-                    inserts: data.inserted, 
-                    updates: data.updated 
-                  });
-                }
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = JSON.parse(line.slice(6));
+                  
+                  // Update real-time stats
+                  if (data.inserted !== undefined) {
+                    setRealtimeStats({ 
+                      inserts: data.inserted, 
+                      updates: data.updated 
+                    });
+                  }
 
-                // Show progress toasts
-                if (data.status === 'batch_complete') {
-                  toast({
-                    title: `Batch ${data.batch} Complete`,
-                    description: `Synced ${data.total} conversations so far...`,
-                  });
-                }
+                  // Handle retry notifications
+                  if (data.status === 'retrying' || data.status === 'db_retrying') {
+                    toast({
+                      title: "Retrying...",
+                      description: data.message || `Retrying batch ${data.batch}...`,
+                      variant: "default"
+                    });
+                  }
 
-                // Final result
-                if (data.status === 'complete') {
-                  finalResult = {
-                    inserted: data.inserted,
-                    updated: data.updated
-                  };
+                  // Handle batch failures
+                  if (data.status === 'batch_failed' || data.status === 'batch_db_failed') {
+                    toast({
+                      title: "Batch Warning",
+                      description: data.message || `Batch ${data.batch} failed, continuing...`,
+                      variant: "destructive"
+                    });
+                  }
+
+                  // Handle timeout/limit warnings
+                  if (data.status === 'timeout_warning' || data.status === 'batch_limit_warning') {
+                    toast({
+                      title: "Sync Limit Reached",
+                      description: data.message,
+                      variant: "default"
+                    });
+                  }
+
+                  // Show progress toasts
+                  if (data.status === 'batch_complete') {
+                    toast({
+                      title: `Batch ${data.batch} Complete`,
+                      description: `Synced ${data.total} conversations${data.failedBatches > 0 ? ` (${data.failedBatches} batch${data.failedBatches !== 1 ? 'es' : ''} failed)` : ''}...`,
+                    });
+                  }
+
+                  // Final result (both complete and complete_with_errors)
+                  if (data.status === 'complete' || data.status === 'complete_with_errors') {
+                    finalResult = {
+                      inserted: data.inserted,
+                      updated: data.updated
+                    };
+                    
+                    // Show warning if there were failures
+                    if (data.status === 'complete_with_errors') {
+                      toast({
+                        title: "Sync Complete with Warnings",
+                        description: data.message,
+                        variant: "default"
+                      });
+                    }
+                  }
                 }
               }
-            }
           }
         } finally {
           reader.releaseLock();
