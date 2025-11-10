@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     const minConfidence = parseFloat(searchParams.get('min_confidence') || '0');
     const activeOnly = searchParams.get('active_only') === 'true';
     const search = searchParams.get('search') || '';
+    const pageId = searchParams.get('page_id') || null;
 
     // Build query
     let query = supabase
@@ -54,6 +55,28 @@ export async function GET(request: NextRequest) {
     // Remove contacts in cooldown
     const now = new Date().toISOString();
     query = query.or(`cooldown_until.is.null,cooldown_until.lt.${now}`);
+
+    // Filter by page if specified
+    if (pageId) {
+      // Get conversation IDs for this page
+      const { data: pageConvs } = await supabase
+        .from('messenger_conversations')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('page_id', pageId);
+      
+      const pageConvIds = (pageConvs || []).map(c => c.id);
+      if (pageConvIds.length > 0) {
+        query = query.in('conversation_id', pageConvIds);
+      } else {
+        // No conversations for this page, return empty
+        return NextResponse.json({
+          success: true,
+          data: [],
+          pagination: { total: 0, limit, offset, has_more: false },
+        });
+      }
+    }
 
     // Sorting
     const ascending = sortOrder === 'asc';
@@ -80,6 +103,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch page information for each conversation
     const conversationIds = (recommendations || []).map(r => r.conversation_id);
+    
     const { data: conversations } = await supabase
       .from('messenger_conversations')
       .select('id, page_id')

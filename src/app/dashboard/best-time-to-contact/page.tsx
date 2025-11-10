@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -22,9 +23,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin } from 'lucide-react';
+import { Clock, TrendingUp, Search, RefreshCw, Calendar, MapPin, Facebook } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendedWindow } from '@/types/database';
+import { useAuth } from '@/hooks/use-auth';
+
+interface FacebookPage {
+  id: string;
+  facebook_page_id: string;
+  name: string;
+  profile_picture: string | null;
+}
 
 interface ContactRecommendation {
   id: string;
@@ -66,13 +75,14 @@ interface ApiResponse {
 
 export default function BestTimeToContactPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [recommendations, setRecommendations] = useState<ContactRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [computing, setComputing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('composite_score');
   const [minConfidence, setMinConfidence] = useState('0');
-  const [itemsPerPage, setItemsPerPage] = useState('50');
+  const [selectedPageId, setSelectedPageId] = useState<string>('all');
   const [pagination, setPagination] = useState({
     total: 0,
     limit: 50,
@@ -80,9 +90,20 @@ export default function BestTimeToContactPage() {
     has_more: false,
   });
 
+  // Fetch connected pages
+  const { data: pages = [] } = useQuery<FacebookPage[]>({
+    queryKey: ['pages', user?.id],
+    queryFn: async () => {
+      const response = await fetch('/api/pages');
+      if (!response.ok) throw new Error('Failed to fetch pages');
+      return response.json();
+    },
+    enabled: !!user?.id
+  });
+
   useEffect(() => {
     fetchRecommendations();
-  }, [sortBy, minConfidence, pagination.offset, itemsPerPage]);
+  }, [sortBy, minConfidence, pagination.offset, selectedPageId]);
 
   // Auto-compute if no recommendations exist
   useEffect(() => {
@@ -105,9 +126,8 @@ export default function BestTimeToContactPage() {
   const fetchRecommendations = async () => {
     try {
       setLoading(true);
-      const limit = parseInt(itemsPerPage, 10);
       const params = new URLSearchParams({
-        limit: limit.toString(),
+        limit: pagination.limit.toString(),
         offset: pagination.offset.toString(),
         sort_by: sortBy,
         sort_order: 'desc',
@@ -115,6 +135,11 @@ export default function BestTimeToContactPage() {
         active_only: 'true',
         search: searchTerm,
       });
+
+      // Add page filter if specific page selected
+      if (selectedPageId !== 'all') {
+        params.set('page_id', selectedPageId);
+      }
 
       const response = await fetch(`/api/contact-timing/recommendations?${params}`);
       const data: ApiResponse = await response.json();
@@ -320,19 +345,34 @@ export default function BestTimeToContactPage() {
               </SelectContent>
             </Select>
 
-            <Select value={itemsPerPage} onValueChange={(value) => {
-              setItemsPerPage(value);
-              setPagination(prev => ({ ...prev, offset: 0, limit: parseInt(value, 10) }));
+            <Select value={selectedPageId} onValueChange={(value) => {
+              setSelectedPageId(value);
+              setPagination(prev => ({ ...prev, offset: 0 }));
             }}>
               <SelectTrigger>
-                <SelectValue placeholder="Per page" />
+                <SelectValue placeholder="Select Page" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10">10 per page</SelectItem>
-                <SelectItem value="25">25 per page</SelectItem>
-                <SelectItem value="50">50 per page</SelectItem>
-                <SelectItem value="100">100 per page</SelectItem>
-                <SelectItem value="200">200 per page</SelectItem>
+                <SelectItem value="all">
+                  <div className="flex items-center gap-2">
+                    <Facebook className="h-4 w-4" />
+                    <span>All Pages</span>
+                  </div>
+                </SelectItem>
+                {pages.map((page) => (
+                  <SelectItem key={page.id} value={page.facebook_page_id}>
+                    <div className="flex items-center gap-2">
+                      {page.profile_picture && (
+                        <img 
+                          src={page.profile_picture} 
+                          alt={page.name}
+                          className="w-4 h-4 rounded-full"
+                        />
+                      )}
+                      <span>{page.name}</span>
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -340,8 +380,8 @@ export default function BestTimeToContactPage() {
               setSearchTerm('');
               setSortBy('composite_score');
               setMinConfidence('0');
-              setItemsPerPage('50');
-              setPagination(prev => ({ ...prev, offset: 0, limit: 50 }));
+              setSelectedPageId('all');
+              setPagination(prev => ({ ...prev, offset: 0 }));
               fetchRecommendations();
             }}>
               Reset Filters
