@@ -234,6 +234,7 @@ export function RealtimeSyncButton({
               Sync from Facebook
             </>
           )}
+        </Button>
 
         {isSyncing && (
           <Button
