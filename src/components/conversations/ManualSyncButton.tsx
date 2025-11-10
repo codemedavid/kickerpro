@@ -295,23 +295,33 @@ export function ManualSyncButton({
         </Tooltip>
       </TooltipProvider>
 
-      {/* Progress Bar for Syncing State */}
+      {/* Live Counter for Syncing State */}
       {showProgress && syncStatus.status === 'syncing' && (
-        <div className="space-y-2">
-          <Progress value={syncStatus.progress} className="h-2" />
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {syncStatus.currentBatch ? `Batch ${syncStatus.currentBatch}` : 'Fetching...'}
-            </span>
-            <span className="font-semibold text-blue-600 dark:text-blue-400">
-              {syncStatus.realTimeCount || 0} conversations
-            </span>
+        <div className="space-y-3">
+          {/* Big Live Counter */}
+          <div className="flex flex-col items-center justify-center py-2 px-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+              {syncStatus.realTimeCount || 0}
+            </div>
+            <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+              conversations synced
+            </div>
           </div>
-          {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
-            <p className="text-xs text-center text-muted-foreground">
-              {syncStatus.inserted} new • {syncStatus.updated} updated
-            </p>
-          )}
+
+          {/* Progress Bar */}
+          <Progress value={syncStatus.progress} className="h-2" />
+          
+          {/* Stats Row */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {syncStatus.currentBatch ? `Batch ${syncStatus.currentBatch}` : 'Starting...'}
+            </span>
+            {syncStatus.inserted !== undefined && syncStatus.updated !== undefined && (
+              <span className="text-muted-foreground">
+                <span className="text-green-600 font-medium">{syncStatus.inserted}</span> new • <span className="text-orange-600 font-medium">{syncStatus.updated}</span> updated
+              </span>
+            )}
+          </div>
         </div>
       )}
 
